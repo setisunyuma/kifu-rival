@@ -615,3 +615,12 @@ body {
 .plan-weak span { background: #f6e7e2; color: #9a4a3c; }
 .plan-new span { background: #efeadc; color: #7a6a43; }
 .daily-plan-note { margin: 10px 0 0; font-size: 9px; color: #a29d8c; }
+
+/* Game review: missed mates (KIF-032 P2) */
+.game-review { margin-bottom: 16px; padding: 16px 18px; }
+.game-review-list { list-style: none; margin: 12px 0; padding: 0; display: grid; gap: 8px; }
+.game-review-list li { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid #e3e1d5; border-radius: 3px; background: #fffefa; }
+.game-review-list li > span { flex: 0 0 auto; padding: 2px 7px; border-radius: 2px; background: #f6e7e2; color: #9a4a3c; font-size: 10px; font-weight: 700; }
+.game-review-list strong { display: block; font-size: 12px; color: #3e5249; }
+.game-review-list small { display: block; font-size: 10px; color: #8d8a7c; }
+.plan-game span { background: #e6ecf3; color: #3d5a75; }

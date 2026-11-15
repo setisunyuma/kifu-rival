@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyMove, forcesMate, mateMoves, opponent, withRemainingPiecesToDefender, checkDeclaration, declareEntering, explainDeclaration, fromSfen, shouldDeclare, Game, initialGame, JISHOGI_MOVE_LIMIT, materialPoints, validatePosition, isInCheck, Kind, legalMoves, playMove, puzzleGame, Side, toSfen, usi } from "../lib/shogi";
-import { dailyPlan, LessonAttempt, lessonStates, LESSONS, practisedSkills, SKILLS, SkillId } from "../lib/lessons";
+import { applyMove, findMissedMates, forcesMate, mateMoves, opponent, withRemainingPiecesToDefender, checkDeclaration, declareEntering, explainDeclaration, fromSfen, shouldDeclare, Game, initialGame, JISHOGI_MOVE_LIMIT, materialPoints, validatePosition, isInCheck, Kind, legalMoves, playMove, puzzleGame, Side, toSfen, usi } from "../lib/shogi";
+import { dailyPlan, lessonsForSkills, skillsForMissedMates, LessonAttempt, lessonStates, LESSONS, practisedSkills, SKILLS, SkillId } from "../lib/lessons";
 
 test("starting position has the right number of pieces and legal pawn moves", () => {
   const g = initialGame();
@@ -579,4 +579,33 @@ test("L3 review records are well-formed and never claim a review nobody did", ()
     else assert.ok(!r.reviewedBy && !r.reviewedOn, `${l.id}: reviewer recorded on an unreviewed lesson`);
     assert.ok(!(r.reviewedBy ?? "").toLowerCase().includes("claude"), `${l.id}: Claude drafts, people review`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// KIF-032 P2: mates missed in the player's own games -> lesson recommendation.
+// ---------------------------------------------------------------------------
+
+test("game review: a missed mate-in-1 and a missed mate-in-3 are reported with their solutions", () => {
+  const one = puzzleGame(boxedKing, { black: { KY: 1 } });
+  assert.deepEqual(findMissedMates(["L*5e", "2b2c"], "black", 3, one), [{ ply: 0, plies: 1, played: "L*5e", solutions: ["L*1b"], solutionNames: ["▲１二香打"] }]);
+  const three = fromSfen("5kS2/8l/5b3/9/9/9/9/9/K8 b 2RN 1");
+  assert.deepEqual(findMissedMates(["9i8i"], "black", 3, three), [{ ply: 0, plies: 3, played: "9i8i", solutions: ["R*4b"], solutionNames: ["▲４二飛打"] }]);
+  assert.deepEqual(findMissedMates(["9i8i"], "black", 1, three), [], "mate-in-3 search can be turned off");
+});
+
+test("game review: playing the mate, the opponent's turns and corrupt records are handled", () => {
+  assert.deepEqual(findMissedMates(["L*1b"], "black", 3, puzzleGame(boxedKing, { black: { KY: 1 } })), []);
+  const whiteToMove = puzzleGame(boxedKing, { black: { KY: 1 } }); whiteToMove.turn = "white";
+  assert.deepEqual(findMissedMates(["2b2c"], "black", 3, whiteToMove), [], "only the player's own turns are reviewed");
+  assert.deepEqual(findMissedMates(["7g7f", "zz99", "3c3d"]), [], "stops at an unknown move");
+  assert.deepEqual(findMissedMates(["7g7f", "3c3d", "8h2b+"]), [], "an ordinary opening has no missed mate");
+});
+
+test("recommendation: missed mates map to C1/C2 and fall back to the nearest taught prerequisite", () => {
+  assert.deepEqual(skillsForMissedMates([{ plies: 1 }, { plies: 3 }, { plies: 1 }]).sort(), ["C1", "C2"]);
+  assert.deepEqual(lessonsForSkills(["C1"]), ["rook-mate"]);
+  assert.deepEqual(lessonsForSkills(["C2"]), ["rook-mate"], "no 3-move lesson yet -> C1 lesson");
+  const plan = dailyPlan([], new Date(day(0)), LESSONS, ["C1"]);
+  assert.ok(plan.some(p => p.lessonId === "rook-mate" && p.reason === "game"), JSON.stringify(plan));
+  assert.equal(plan.length, 3);
 });

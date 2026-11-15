@@ -171,3 +171,11 @@
 - Base commit: `3b462d5`（PR #16のsquash後の`main`。PR #16は無人マージ済み）
 - Work: リポジトリ外でEmscripten（emsdk）を導入し、YaneuraOu駒得版をWASM化。Chromiumで、Fairy-Stockfish WASMと同条件で比較した。YaneuraOu WASMは動作せず（クラッシュ／応答なし）、原因は未解決。第三者のコード・バイナリはコミットしていない。
 - Next: YaneuraOu WASMの切り分け、iPhone計測の手順書（ローカル計測サーバー方式）。
+
+## 2026-11-15 — KIF-031 P1: 詰将棋の検証基盤とL3レビュー記録
+
+- Actor: Claude（Claude Codeクラウド）
+- Base commit: `8286aca`
+- Changes: `lib/shogi.ts`に詰将棋の探索、`lib/lessons.ts`に検証種別`mate-in-1/3/5`とL3レビュー記録（下書き）。教材の文面・盤面・IDは不変。画面の変更なし。
+- Cross-check: リポジトリ外のFairy-Stockfishとランダム400局面で突き合わせ。食い違いはステイルメイトの扱い（エンジンは対局ルールで勝ち、詰将棋では詰みでない）だけ。
+- Validation: `test:unit` 58/58 PASS、ミューテーション3種を検出。

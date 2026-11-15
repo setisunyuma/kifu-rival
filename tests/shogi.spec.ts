@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyMove, opponent, checkDeclaration, declareEntering, explainDeclaration, fromSfen, shouldDeclare, Game, initialGame, JISHOGI_MOVE_LIMIT, materialPoints, validatePosition, isInCheck, Kind, legalMoves, playMove, puzzleGame, Side, toSfen, usi } from "../lib/shogi";
+import { applyMove, forcesMate, mateMoves, opponent, withRemainingPiecesToDefender, checkDeclaration, declareEntering, explainDeclaration, fromSfen, shouldDeclare, Game, initialGame, JISHOGI_MOVE_LIMIT, materialPoints, validatePosition, isInCheck, Kind, legalMoves, playMove, puzzleGame, Side, toSfen, usi } from "../lib/shogi";
 import { dailyPlan, LessonAttempt, lessonStates, LESSONS, practisedSkills, SKILLS, SkillId } from "../lib/lessons";
 
 test("starting position has the right number of pieces and legal pawn moves", () => {
@@ -467,10 +467,11 @@ test("L1/L2: every lesson position is valid and its answer does what the lesson 
     const next = playMove(g, move!);
     if (l.verify === "capture") assert.ok(g.board[move!.to.r][move!.to.c]?.owner === opponent(g.turn), `${l.id}: answer does not capture`);
     if (l.verify === "check") assert.ok(isInCheck(next, next.turn), `${l.id}: answer does not give check`);
-    if (l.verify === "mate-in-1") {
-      assert.equal(next.result, g.turn, `${l.id}: answer does not mate`);
-      const mates = legalMoves(g).filter(m => playMove(g, m).result === g.turn).map(usi).sort();
-      assert.deepEqual(mates, [l.answer, ...(l.alsoMates ?? [])].sort(), `${l.id}: unlisted alternative mates`);
+    const mateIn = /^mate-in-(\d)$/.exec(l.verify);
+    if (mateIn) {
+      if (l.verify === "mate-in-1") assert.equal(next.result, g.turn, `${l.id}: answer does not mate`);
+      const solutions = mateMoves(g, Number(mateIn[1])).sort();
+      assert.deepEqual(solutions, [l.answer, ...(l.alsoMates ?? [])].sort(), `${l.id}: answer missing or unlisted alternative solutions`);
     }
   }
 });
@@ -518,4 +519,64 @@ test("attempts for unknown lessons are ignored and every lesson stays reachable"
   assert.doesNotThrow(() => dailyPlan([at("no-such-lesson", true, 0)], new Date(day(1))));
   assert.equal(lessonStates([]).size, LESSONS.length);
   for (const id of Object.keys(SKILLS) as SkillId[]) assert.ok(SKILLS[id].name);
+});
+
+// ---------------------------------------------------------------------------
+// Tsume solver (KIF-031 P1). Expected results were cross-checked against
+// Fairy-Stockfish 014b077 (400 random positions: every tsume mate we found was a
+// mate for the engine; mate-in-1 agreed except stalemates, see below).
+// ---------------------------------------------------------------------------
+
+test("tsume solver: mate-in-1 agrees with exhaustive enumeration on every lesson", () => {
+  for (const l of LESSONS) {
+    const g = l.setup();
+    const direct = legalMoves(g).filter(m => playMove(g, m).result === g.turn).map(usi).sort();
+    assert.deepEqual(mateMoves(g, 1).sort(), direct, l.id);
+  }
+});
+
+test("tsume solver: mate-in-3 positions, including one with two first-move solutions (別解)", () => {
+  const cases: [string, string[]][] = [
+    ["5kS2/8l/5b3/9/9/9/9/9/K8 b 2RN 1", ["R*4b"]],
+    ["5k3/8L/5P3/9/9/9/9/9/K8 b 2RL 1", ["R*4b"]],
+    ["5k3/9/5Bn2/9/9/9/9/9/K8 b BG 1", ["G*3b", "G*5b"]],
+  ];
+  for (const [sfen, expected] of cases) {
+    const g = fromSfen(sfen);
+    assert.deepEqual(mateMoves(g, 1), [], `${sfen}: no mate in 1`);
+    assert.deepEqual(mateMoves(g, 3).sort(), expected, sfen);
+    assert.equal(forcesMate(g, 3), true);
+  }
+});
+
+test("tsume solver: positions without a mate in 3 return nothing", () => {
+  for (const sfen of ["5k2B/9/8N/9/9/9/9/9/K8 b RP 1", "5k1GR/6P2/9/9/9/9/9/9/K8 b B2P 1"]) {
+    assert.deepEqual(mateMoves(fromSfen(sfen), 3), [], sfen);
+    assert.equal(forcesMate(fromSfen(sfen), 3), false, sfen);
+  }
+});
+
+test("tsume solver: a stalemating move is not a tsume mate (the engine counts it as a win)", () => {
+  const g = fromSfen("5k3/9/5N2N/9/9/9/9/9/K8 b RB 1");
+  const stalemate = applyMove(g, legalMoves(g).find(m => usi(m) === "R*9b")!);
+  assert.equal(isInCheck(stalemate, "white"), false);
+  assert.equal(legalMoves(stalemate).length, 0, "white has no legal move");
+  assert.deepEqual(mateMoves(g, 1), [], "tsume requires check");
+});
+
+test("tsume convention: the defender holds every remaining piece", () => {
+  const g = withRemainingPiecesToDefender(fromSfen("5k3/9/5P3/9/9/9/9/9/K8 b 2RL 1"));
+  assert.deepEqual(g.hands.white, { HI: 0, KA: 2, KI: 4, GI: 4, KE: 4, KY: 3, FU: 17 });
+  assert.deepEqual(validatePosition(g), []);
+});
+
+test("L3 review records are well-formed and never claim a review nobody did", () => {
+  for (const l of LESSONS) {
+    const r = l.review;
+    assert.ok(r.target && r.purpose && r.misconceptions.length > 0 && r.history.length > 0, `${l.id}: incomplete review record`);
+    assert.ok(r.intendedDifficulty >= 1 && r.intendedDifficulty <= 5);
+    if (r.status === "reviewed") assert.ok(r.reviewedBy && r.reviewedOn, `${l.id}: reviewed without reviewer/date`);
+    else assert.ok(!r.reviewedBy && !r.reviewedOn, `${l.id}: reviewer recorded on an unreviewed lesson`);
+    assert.ok(!(r.reviewedBy ?? "").toLowerCase().includes("claude"), `${l.id}: Claude drafts, people review`);
+  }
 });

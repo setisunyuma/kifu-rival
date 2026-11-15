@@ -86,3 +86,10 @@
 - GitHub setting: `setisunyuma/kifu-rival`のRuleset `Protect main`（ID `27308076`）をAPIで確認。`active`、default branch対象、pull_request必須・承認数0・必要チェック`verify`・branch deletion禁止・force push禁止・Squashのみ・strict status checksはOFF・bypassなし。
 - Experiment: この台帳追記のみを安全な同一repo PRとして提案。`Source validation`と`Guarded auto-merge`が**保護ルール適用後**も動くかを確認する。PR作成時点ではマージ成功を未確認とし、結果は別記録で追記する。
 - Scope: ChatGPT SitesのPrivate設定、D1、実際の棋譜、デプロイには変更なし。Claude Codeクラウドの接続は引き続き未確認。
+
+## 2026-11-15 — Ruleset保護下のPR #5自動マージ成功
+
+- Actor: ChatGPT
+- Ruleset evidence: `Protect main`（ID `27308076`）は`active`、default branch対象、PR必須・承認数0・必須チェック`verify`（GitHub Actions）・ブランチ削除/force push禁止・Squashのみ・最新ブランチ強制OFF・bypassなし。API再読込で確認。
+- Smoke test: [PR #5](https://github.com/setisunyuma/kifu-rival/pull/5)はこの台帳だけを追記した本人の同一repo PR。[Source validation run 43700912594](https://github.com/setisunyuma/kifu-rival/actions/runs/43700912594)で`verify`成功後、[Guarded auto-merge run 43700962737](https://github.com/setisunyuma/kifu-rival/actions/runs/43700962737)成功、`merged=true`。無人Squashコミットは`c18b26f5a43ad604c4ec7de7fac01bc073dab124`。
+- Interpretation: **ルール保護と自動マージの両立を実地検証**。ただしClaude Codeクラウドでのclone/PR発行は未検証、ChatGPT Private Siteには自動デプロイしていない。`KIF-063`はIN_PROGRESSを維持。

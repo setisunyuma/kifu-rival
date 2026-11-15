@@ -20,7 +20,7 @@
 ## 受け渡しの現在地
 
 - **方針は確定**: GitHubソース＝**Public**。ChatGPT Sitesのアプリ＝**本人限定のPrivate**。GitHubへpushするだけではSiteが更新・公開されない。
-- **実施済み**: `setisunyuma/kifu-rival`はPublic。147ファイルのソースを新履歴で移管し、GitHub Actionsの初回`verify`成功とPR #1の無人`squash merge`成功を確認。**未完了**: Claude CodeクラウドからのcloneとPR操作、GitHub main Rulesetの設定。PR #2で要手動レビューの自動保留も実地確認済み。GitHubとPrivate Siteは独立している。
+- **実施済み**: `setisunyuma/kifu-rival`はPublic。147ファイルのソースを新履歴で移管し、GitHub Actionsの初回`verify`成功とPR #1の無人`squash merge`成功を確認。**完了**: `Protect main` Rulesetを有効化、PR #5で`verify`成功と自動Squashマージ成功を確認。**未完了**: Claude CodeクラウドからのcloneとPR操作。PR #2で要手動レビューの自動保留も実地確認済み。GitHubとPrivate Siteは独立している。
 - **渡す現物**: GitHub開発正本[`setisunyuma/kifu-rival`](https://github.com/setisunyuma/kifu-rival)の**最新`main`**をClaude Codeクラウドで選択・cloneする。ZIPはGitHub接続不能な場合のみ、検査済みスナップショットの補助手段とする。SiteのURLだけではソースを受け取れない。
 - **ライセンス**: プロジェクト自身のルート`LICENSE`未選択（Q-008）。YaneuraOu/Apery等は本体と評価関数・定跡を独立して確認し、USI別プロセス構成でもGPL対応が自動的に不要になるわけではない。
 

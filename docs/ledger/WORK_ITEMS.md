@@ -161,8 +161,8 @@
 - Owner: ChatGPT → Claude
 - Depends: KIF-002
 - Acceptance: TypeScript、lint、ユニット、基本E2E、台帳検査、ビルドがPRごとに走り、失敗時にmerge/公開を防ぐ。
-- Evidence: Secretsとデプロイ権限を渡さない `.github/workflows/verify.yml` を追加。GitHub初回pushの[run 43696606531](https://github.com/setisunyuma/kifu-rival/actions/runs/43696606531)とPR #1の[run 43696850845](https://github.com/setisunyuma/kifu-rival/actions/runs/43696850845)はいずれも`verify`成功。main rulesetは未作成、基本E2Eも未導入。
-- Next: GitHub SettingsでmainのPR必須・`verify`必須・force push禁止を設定し、ブラウザE2E検証を追加してから `VERIFIED` とする。
+- Evidence: Secretsとデプロイ権限を渡さない `.github/workflows/verify.yml` を追加。GitHub初回pushの[run 43696606531](https://github.com/setisunyuma/kifu-rival/actions/runs/43696606531)とPR #1の[run 43696850845](https://github.com/setisunyuma/kifu-rival/actions/runs/43696850845)はいずれも`verify`成功。main Ruleset `Protect main`有効化とPR #5の保護下自動マージを確認。基本E2Eは未導入。
+- Next: mainのPR必須・`verify`必須・force push禁止は`Protect main`で設定・PR #5で検証済み。ブラウザE2E検証を追加してから `VERIFIED` とする。
 
 ## KIF-062 — Publicソースの機密・ライセンス公開点検
 - Status: VERIFIED
@@ -179,5 +179,5 @@
 - Owner: ChatGPT → Claude
 - Depends: KIF-002, KIF-061
 - Acceptance: 本人の同一repo PRがCI全成功・現行head/base・変更範囲・サイズを満たす場合に無人`squash merge`される。一方、フォーク・失敗CI・古いコミット・インフラ/DB/公開設定変更等は自動マージされない。`main`のPR/CI保護、GitHubでの実地動作が確認でき、Private Siteを自動デプロイしない。
-- Evidence: `.github/workflows/guarded-auto-merge.yml`と`scripts/guarded-auto-merge.mjs`を実装、単体テスト4件追加（全体17件PASS）。GitHub Publicへ移管後、PR #1のCI [run 43696850845](https://github.com/setisunyuma/kifu-rival/actions/runs/43696850845)成功→[Guarded auto-merge run 43696911543](https://github.com/setisunyuma/kifu-rival/actions/runs/43696911543)成功→squash commit `a1fb7f516487fb4092f601169a482a7463dd79ff`、本人操作なしでマージ済み。要手動のPR #2は`[manual]`で自動マージ保留となり、ログに`Manual review`を確認（[run 43697230268](https://github.com/setisunyuma/kifu-rival/actions/runs/43697230268)）。PR #2はその後、CIと差分を確認して手動squash merge。main rulesetは未完了。
-- Next: GitHub Settingsでmain Ruleset（PR必須・verify必須・force push禁止）を設定。要手動PRの保留挙動はPR #2で実地確認済み。Claude CodeクラウドからのPR発行確認を実施。CIイベントのbase SHA欠落ケースは安全停止のまま検証する。
+- Evidence: `.github/workflows/guarded-auto-merge.yml`と`scripts/guarded-auto-merge.mjs`を実装、単体テスト4件追加（全体17件PASS）。GitHub Publicへ移管後、PR #1のCI [run 43696850845](https://github.com/setisunyuma/kifu-rival/actions/runs/43696850845)成功→[Guarded auto-merge run 43696911543](https://github.com/setisunyuma/kifu-rival/actions/runs/43696911543)成功→squash commit `a1fb7f516487fb4092f601169a482a7463dd79ff`、本人操作なしでマージ済み。要手動のPR #2は`[manual]`で自動マージ保留となり、ログに`Manual review`を確認（[run 43697230268](https://github.com/setisunyuma/kifu-rival/actions/runs/43697230268)）。PR #2はその後、CIと差分を確認して手動squash merge。main Ruleset `Protect main`を有効化し、PR #5で必須`verify`成功と保護下無人マージ成功を確認。
+- Next: main Rulesetの実地検証はPR #5で成功。要手動PRの保留挙動はPR #2で確認済み。Claude CodeクラウドからのPR発行確認を実施。CIイベントのbase SHA欠落ケースは安全停止のまま検証する。

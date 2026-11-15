@@ -44,4 +44,6 @@
 
 またPR #2（`[manual]`、重要指示書を含む）ではCIが成功しても自動マージを保留し、実行ログで`Manual review`を確認した。その後に内容を確認し手動マージした。PR #3の台帳更新はCI成功後に自動マージされた。
 
-ただし**main Rulesetの保護、Claude Codeクラウドからの実操作**は未完了。これらの条件がすべて終わるまで`KIF-063`を`VERIFIED`にしない。GitHubの`workflow_run`でbase SHAが欠落する別ケースは意図的に保留する。**CI成功やマージ済みの範囲を誇張しない**。
+さらに、`Protect main` Ruleset（ID `27308076`）の有効化後、[PR #5](https://github.com/setisunyuma/kifu-rival/pull/5)で[CI `verify`成功](https://github.com/setisunyuma/kifu-rival/actions/runs/43700912594)から[無人Squashマージ成功](https://github.com/setisunyuma/kifu-rival/actions/runs/43700962737)まで確認した。RulesetはPR必須、承認数0、`verify`必須、削除とforce push禁止、Squashのみ、最新ブランチ必須化OFF、bypassなし。
+
+ただし**Claude Codeクラウドからのclone/PR実操作**は未完了。これを検証するまで`KIF-063`を`VERIFIED`にしない。GitHubの`workflow_run`でbase SHAが欠落する別ケースは意図的に保留する。**CI成功やマージ済みの範囲を誇張しない**。

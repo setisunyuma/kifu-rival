@@ -94,7 +94,7 @@ node scripts/release.mjs verify outputs/release-<short-sha>.json --root <sites-c
 GitHubは検査済みスナップショットから新しい履歴で始めたため、Sitesソースの履歴とはつながっていない。初回は次の手順にする。
 
 1. 配備担当が現在のSitesソースのHEADとSite versionを控える。
-2. `--base`には、GitHubへ移管した最初のコミット`992fdd0c50ad5316dd8621b94ddffd271844ef19`を使い、変更の分類を確認する。移管後の変更は主に文書・CI・`lib/shogi.ts`（千日手）・テストで、D1やAPIの変更はない（2026-11-15時点。実行時に再確認する）。
+2. `--base`には、GitHubへ移管した最初のコミット`992fdd0c50ad5316dd8621b94ddffd271844ef19`を使い、変更の分類を確認する。2026-11-15時点（`main` `53557f6`）で配信物の変更は`lib/shogi.ts`（千日手・500手・入玉宣言の判定・不正局面検出）と`lib/lessons.ts`（「はじめての一手詰」の二歩修正）のみで判定は`app`。D1・API・依存関係の変更はない。実行時に再確認する。
 3. §3の`verify`で`extra`や`changed`を見て、Sites側にしかない変更がないか確かめる。ある場合はGitHubへ取り込んでからやり直す。
 4. 以降は通常の手順に従う。
 

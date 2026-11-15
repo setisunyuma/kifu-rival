@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { classifyChanges, compareManifest, listReleaseFiles, sha256 } from "../scripts/release.mjs";
+import { classifyChanges, compareManifest, listReleaseFiles, sameDependencies, sha256 } from "../scripts/release.mjs";
 
 const m = (path: string, status = "M") => ({ status, path });
 
@@ -55,4 +55,14 @@ test("release verify: ignored local state is skipped and every difference is rep
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("release plan: package.json counts as a dependency change only when install-relevant fields change", () => {
+  const before = { name: "x", scripts: { a: "1" }, dependencies: { react: "19" }, engines: { node: ">=22" } };
+  assert.equal(sameDependencies(before, { ...before, scripts: { a: "1", b: "2" } }), true);
+  assert.equal(sameDependencies(before, { ...before, dependencies: { react: "20" } }), false);
+  assert.equal(sameDependencies(before, { ...before, engines: { node: ">=24" } }), false);
+  assert.equal(classifyChanges([m("package.json")], { packageDependenciesUnchanged: true }).level, "none");
+  assert.equal(classifyChanges([m("package.json")]).level, "runtime");
+  assert.equal(classifyChanges([m("package-lock.json")], { packageDependenciesUnchanged: true }).level, "runtime", "lockfile always needs review");
 });

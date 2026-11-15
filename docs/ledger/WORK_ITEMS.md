@@ -29,7 +29,7 @@
 - Depends: KIF-002
 - Acceptance: GitHubのレビュー済みコミットから非公開Sitesへ反映する手順、バージョン付与、データ保全、ロールバックが再現できる。
 - Evidence: GitHub pushだけではChatGPT Sitesの公開版が変わらない。
-- Evidence (Claude, 2026-11-15): 手順書`docs/RELEASE.md`と支援スクリプト`scripts/release.mjs`（`release:plan`=差分を`none/app/runtime/data`に分類し`data`は終了コード2で停止、`release:manifest`=SHA固定の全ファイルSHA-256、`release:verify`=Sitesソースとの一致検証）を追加。単体テスト5件（`tests/release.spec.ts`）。リハーサル: `6002ddd`のマニフェスト（147ファイル）と`git archive`展開物の照合がOK、1ファイル改ざんでMISMATCHを確認。移管直後の`992fdd0`から`6002ddd`までの配信物の変更は`lib/shogi.ts`のみ（`app`判定）。**ClaudeにはSites配備権限がないため、実際のSite反映・ロールバックは未実施**。
+- Evidence (Claude, 2026-11-15): 手順書`docs/RELEASE.md`と支援スクリプト`scripts/release.mjs`（`release:plan`=差分を`none/app/runtime/data`に分類し`data`は終了コード2で停止、`release:manifest`=SHA固定の全ファイルSHA-256、`release:verify`=Sitesソースとの一致検証）を追加。単体テスト6件（`tests/release.spec.ts`。`package.json`はスクリプトだけの変更なら`none`、依存関係・engines等の変更なら`runtime`）。リハーサル: `6002ddd`のマニフェスト（147ファイル）と`git archive`展開物の照合がOK、1ファイル改ざんでMISMATCHを確認。移管直後の`992fdd0`から`6002ddd`までの配信物の変更は`lib/shogi.ts`のみ（`app`判定）。**ClaudeにはSites配備権限がないため、実際のSite反映・ロールバックは未実施**。
 - Next: ChatGPT（Sites権限保持者）が`docs/RELEASE.md`の§初回リリースを実施し、Site versionとGitHub SHAの対応・`verify`結果・アクセス設定の事後確認を記録する。成功を確認してから`VERIFIED`とする。アプリ内にビルドSHAを表示する案（Siteで今どの版が動いているかを画面で確認できる）を次の改善候補とする。
 
 ## KIF-010 — 将棋ルール・合法手の完全性

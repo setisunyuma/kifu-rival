@@ -38,12 +38,14 @@ const LEVELS = ["none", "app", "runtime", "data"];
 
 /**
  * @param {{status: string, path: string}[]} changes  git name-status entries
- * @param {{storageKeyChanged?: boolean}} [signals]
+ * @param {{storageKeyChanged?: boolean, packageDependenciesUnchanged?: boolean}} [signals]
  */
 export function classifyChanges(changes, signals = {}) {
   const entries = changes.map(({ status, path }) => {
     const rule = RULES.find(r => r.test(path));
     let level = rule.level, reason = rule.reason;
+    // Editing only npm scripts or metadata does not change what the Site runs.
+    if (path === "package.json" && status === "M" && signals.packageDependenciesUnchanged) { level = "none"; reason = "package.json without dependency/engine changes"; }
     // Deleting served files can break the running Site or a rollback.
     if (/^[DR]/.test(status) && level === "app") { level = "runtime"; reason += " (deleted/renamed)"; }
     return { status, path, level, reason };
@@ -94,6 +96,16 @@ export function compareManifest(expected, actual) {
 function git(args, cwd) { return execFileSync("git", args, { cwd, encoding: "utf8" }); }
 function option(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; }
 
+const DEPENDENCY_FIELDS = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies", "overrides", "engines", "packageManager", "workspaces"];
+/** True when package.json changed only outside the fields that affect what gets installed or run. */
+export function sameDependencies(before, after) {
+  return DEPENDENCY_FIELDS.every(field => JSON.stringify(before?.[field] ?? null) === JSON.stringify(after?.[field] ?? null));
+}
+function packageDependenciesUnchanged(base, head, root) {
+  try { return sameDependencies(JSON.parse(git(["show", `${base}:package.json`], root)), JSON.parse(git(["show", `${head}:package.json`], root))); }
+  catch { return false; }
+}
+
 function plan(args, root) {
   const base = option(args, "--base"), head = option(args, "--head") || "HEAD";
   if (!base) throw new Error("plan requires --base <sha of the commit currently deployed>");
@@ -101,7 +113,7 @@ function plan(args, root) {
     .map(line => { const [status, path] = line.split("\t"); return { status, path }; });
   const appDiff = git(["diff", "-U0", `${base}..${head}`, "--", "app/rival-app.tsx"], root);
   const storageKeyChanged = /^[-+].*STORAGE_KEY\s*=/m.test(appDiff);
-  const result = classifyChanges(changes, { storageKeyChanged });
+  const result = classifyChanges(changes, { storageKeyChanged, packageDependenciesUnchanged: packageDependenciesUnchanged(base, head, root) });
   const headSha = git(["rev-parse", head], root).trim();
   console.log(`release plan ${base.slice(0, 12)}..${headSha.slice(0, 12)}: level=${result.level}`);
   for (const e of result.entries) console.log(`  [${e.level}] ${e.status} ${e.path} — ${e.reason}`);

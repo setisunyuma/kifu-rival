@@ -187,6 +187,54 @@
 - Changes: `lib/shogi.ts`に`findMissedMates`、`lib/lessons.ts`に見逃し→技能→教材の推薦と今日の課題の「実戦」枠、成長の記録画面に振り返りの一覧。保存形式・API・D1は未変更（既存の対局記録の手順を読むだけ）。
 - Validation: `test:unit` 61/61 PASS。自己対局で見逃しのある棋譜を作り、Chromium 375×812で表示と推薦を確認。iPhone実機は未確認。
 
+## 2026-11-15 — PR #8の結果記録とKIF-003リリース手順
+
+- Actor: Claude（Claude Codeクラウド）
+- Base commit: `6002ddda50be81ab97731069cb79dba783e4baa5`（PR #8のsquash後の`main`）
+- PR #8 result: [Source validation run 43703917476](https://github.com/setisunyuma/kifu-rival/actions/runs/43703917476)成功→[Guarded auto-merge run 43703966827](https://github.com/setisunyuma/kifu-rival/actions/runs/43703966827)で`github-actions[bot]`がsquash merge（`6002ddd`）。ユーザー側（ChatGPT）でも自動マージとCI成功を確認済みとの連絡あり。
+- User decisions: ADR-010として記録（Public/Private維持、メール公開のまま、ブランチ自動削除推奨、リポジトリ外でのGPLエンジン実測を許可、持将棋は推奨仕様を提示、優先順位KIF-003→KIF-010→KIF-020）。`Q-009`・`Q-010`を解決し、`Q-011`（持将棋・入玉）を追加。
+- KIF-003: `docs/RELEASE.md`、`scripts/release.mjs`、`tests/release.spec.ts`、`package.json`の`release:*`、`docs/OPERATIONS.md`のリリース節を追加・更新。`scripts/`・`package.json`・`OPERATIONS.md`・`DECISIONS.md`・`OPEN_QUESTIONS.md`を含むため**自動マージ対象外の手動レビューPR**とする。Siteへの反映は未実施（Sites権限なし）。
+- Branches: 手動レビューPRが開いたままでも自動マージ対象の作業を進めるため、`docs/AUTOMERGE_POLICY.md`の「タスクごとに`claude/<短い説明>`」に従い、作業ごとに`claude/`ブランチを分ける。
+- Data impact: なし。D1・localStorage・Siteの公開範囲は変更していない。
+
+## 2026-11-15 — PR #9へのレビュー指摘の反映とADR-011
+
+- Actor: Claude（Claude Codeクラウド）
+- Review: ユーザーがPR #9に2点を指摘（未分類ファイルが`none`になる、`package.json`のビルド／起動／インストール系スクリプト変更を見逃す）。いずれも修正し、回帰テスト3件を追加（release関連8件、全49件PASS）。ミューテーション3種を全検出。**PR #9は手動レビュー対象のまま**で、Claudeはマージしない。
+- Decisions: ADR-011（入玉宣言の仕様、エンジン試作方針、リリース・配備先の比較、ブランチ自動削除、教材優先）を記録。Q-011をRESOLVED、Q-003を更新。
+
+## 2026-11-15 — PR #9 レビュー第2回: 同期前の差分確定
+
+- Actor: Claude（Claude Codeクラウド）
+- Review: 同期（`rsync --delete`）の後に照合する順序では、Siteにしかないファイルを失う。手順を「特定→保全→読み取り専用の差分→一覧化と判断→停止条件→rsync空実行との突き合わせ→同期→同期後の照合→復旧確認」に変更（`docs/RELEASE.md` §3）。
+- Tools: `release.mjs snapshot`／`preflight`、`planSync`／`crossCheckDryRun`。テスト全68件PASS、ミューテーション4種を検出、rsync 3.2.7でのリハーサルを完了（この環境にrsyncを一時的に導入）。リハーサル中、rsyncが日時だけの差分も出力するため判定を誤る不具合を見つけて修正（属性だけの更新は転送に数えない、`--checksum`で内容比較）。
+- PR #9は手動レビュー対象のまま。Claudeはマージしない。
+
+## 2026-11-15 — PR #9 レビュー第3回: ゲートの意味と自動検証
+
+- Actor: Claude（Claude Codeクラウド）
+- Review: 「SAFE TO SYNCがバックアップ取得・data承認まで保証するように見える」「初回リリースの説明に古いSHAが残る」との指摘を反映。バックアップ（スナップショットの一致・アーカイブからの復元）を自動ゲートに追加、data承認は記録の有無だけを確認する手動ゲートとして分離表示、最新SHAで分類を再実行する手順に変更。
+- Validation: `test:unit` 77/77 PASS、ミューテーション3種を検出、tarバックアップを使った通しの試験（STOP→PASSED→バックアップ後の変更でSTOP）。PR #9は手動レビュー対象のまま。
+
+## 2026-11-15 — PR #9 レビュー第4回: 中身によるデータ変更の検出と検証対象外の明示
+
+- Actor: Claude（Claude Codeクラウド）
+- Review: 「`syncLevel()`がパスだけで判定し、localStorageキーの変更などを見逃しうる」「スナップショットの対象外を明確に」との指摘を反映。中身の検出を`release:plan`と`preflight`で共有、`release:plan`の結果を`preflight`の必須入力にして判定を合成、対象外の一覧とrsync除外の単一定義、シンボリックリンク・特殊ファイルで停止。
+- Validation: `test:unit` 82/82 PASS、ミューテーション5種を検出、通しの試験で中身による`data`判定・シンボリックリンクでの停止・ローカルの秘密とD1状態の保持を確認。PR #9は手動レビュー対象のまま、Siteへの同期・配備はしていない。
+
+## 2026-11-15 — PR #9 レビュー第5回: 保存処理の検出漏れ2件
+
+- Actor: Claude（Claude Codeクラウド）
+- Review: 括弧の前の空白・改行がある`clear`、`removeItem(STORAGE_KEY)`→`clear()`の同数置換を見逃す、との指摘を反映。コメントと空白を除いた上で保存関連の文を多重集合で比較し、判定できない変更も`data`に倒す。
+- Finding: 実際のmainで`release:plan`を実行すると、初回リリースは`data`判定（保存内容に項目追加）。旧版は追加項目を無視できるが、旧版に戻した後の保存で追加項目は失われる点を手順書に記載。
+- Validation: `test:unit` 89/89 PASS（CLIでの`plan`・`preflight`の実経路テストを含む）、ミューテーション4種を検出。PR #9は手動レビュー対象のまま。
+
+## 2026-11-15 — PR #9 レビュー第6回: 文字列を保った字句比較と端末内データの保全
+
+- Actor: Claude（Claude Codeクラウド）
+- Review: コメント・空白の除去が引用符の内外を区別せず、文字列内の空白や`//`で検出漏れが起きる、との指摘。原因（文字列を壊す前処理）を除き、TypeScriptパーサーの字句で比較する方式に変更。手順書の検出範囲を実際の保証に合わせて更新。端末内データの保全手段がないため、`data`判定のリリースは書き出し・読み込み機能（KIF-050）の後とした。
+- Validation: `test:unit` 95/95 PASS（実際のGit差分の`plan`、実ファイルの`preflight`を含む）、ミューテーション2種を検出。PR #9は手動レビュー対象のまま。
+
 ## 2026-11-15 — KIF-032 解析のWeb Worker化と「より短い詰み」の区別
 
 - Actor: Claude（Claude Codeクラウド）
@@ -194,3 +242,12 @@
 - Review: 解析が画面処理を占有しうる、未解析を0件と混同しうる、別の正しい詰みを失敗として推薦する、との指摘を反映。
 - Changes: `hooks/game-review.worker.ts`・`hooks/use-game-review.ts`・`hooks/worker-modules.d.ts`を追加、`lib/shogi.ts`に`reviewGame`（完了状態・打ち切り理由・見逃しの種類）、`lib/lessons.ts`の推薦を「詰みが続かなかった」ものに限定、成長の記録画面の表示を更新。保存形式・API・D1は未変更。
 - Validation: `test:unit` 62/62 PASS。Chromium（開発サーバーと本番ビルド）で応答性・打ち切り表示・入力変更時の結果の入れ替わりを確認。iPhone実機は未確認。
+
+## 2026-11-16 — PR #9へ最新mainを取り込み
+
+- Actor: ChatGPT
+- Base commit: PR #9の`93736b6`と、PR #20マージ後のmain `1ef202d3d9626175cc3e5c8e120d30ed7a54459e`。
+- Changes: `SESSION_LOG.md`だけの競合を解消し、両ブランチの記録を残した。既存の指摘対応とmainのWorker解析を両立。
+- Validation: `test:unit` 96/96 PASS、lint・型チェック・build・ledger:check・public:check・diff --checkがすべてPASS。UI固有の追加変更はなく、iPhone実機の確認は未実施。新しい取り込みコミットのCIはpush後に確認する。
+- Release plan: 最新main `1ef202d`を移管基準`992fdd0`から分類し、保存処理の変更による`data`判定・終了コード2を確認。端末データの退避・復元（KIF-050）と承認記録は、実リリース前に満たす条件。
+- Boundary: 手動レビュー対象を維持。PRのマージ、Site同期・配備は実施していない。

@@ -23,13 +23,20 @@
 - Next: なし（本IDは完了）。GitHubと非公開Siteの同期はKIF-003。
 
 ## KIF-003 — GitHubとSitesの安全なリリース経路
-- Status: BACKLOG
+- Status: IN_PROGRESS
 - Priority: P0
-- Owner: Unassigned
+- Owner: Claude → ChatGPT
 - Depends: KIF-002
 - Acceptance: GitHubのレビュー済みコミットから非公開Sitesへ反映する手順、バージョン付与、データ保全、ロールバックが再現できる。
 - Evidence: GitHub pushだけではChatGPT Sitesの公開版が変わらない。
-- Next: 現行Sitesソース保存機能と新Public GitHubの差分同期方法を文書化し、Private Siteへの非破壊の更新で実験する。
+- Evidence (Claude, 2026-11-15): 手順書`docs/RELEASE.md`と支援スクリプト`scripts/release.mjs`（`release:plan`=差分を`none/app/runtime/data`に分類し`data`は終了コード2で停止、`release:manifest`=SHA固定の全ファイルSHA-256、`release:verify`=Sitesソースとの一致検証）を追加。単体テスト8件（`tests/release.spec.ts`）。ユーザーのレビュー指摘（2026-11-15）を受け、**未分類ファイルは`runtime`**（`none`は明示リストのみ）、`package.json`は依存関係が不変かつ変更スクリプトがすべて管理用（`lint`・`test*`・`ledger:check`・`public:check`・`release:*`）の場合だけ`none`、ビルド・起動・インストール・npmライフサイクルフックの変更は`runtime`に修正。ミューテーション3種を全検出。リハーサル: `6002ddd`のマニフェスト（147ファイル）と`git archive`展開物の照合がOK、1ファイル改ざんでMISMATCHを確認。移管直後の`992fdd0`から`6002ddd`までの配信物の変更は`lib/shogi.ts`のみ（`app`判定）。**ClaudeにはSites配備権限がないため、実際のSite反映・ロールバックは未実施**。
+- Evidence (Claude, 2026-11-15, レビュー第2回): ユーザー指摘「`rsync --delete`の後に照合すると、Siteにしかないファイルが消えて検出できない」を受け、手順を**同期前の差分確定**に組み替えた。`release.mjs snapshot`（同期前の退避とハッシュ記録）、`preflight`（読み取り専用。追加・上書き・削除を一覧化し、上書きと削除は現在のハッシュに紐づく人の判断がない限り終了コード3で停止。判断後にSite側が変われば「古い判断」として再停止。`rsync --checksum --dry-run --itemize-changes`の出力と突き合わせ、予測外の削除・転送で停止）を追加。テスト8件追加（release関連で計19件、全68件PASS）、ミューテーション4種を全検出。rsyncを使った通しのリハーサルで、STOP→判断→SAFE→同期→verify OK→改ざん検出→バックアップから同期前ハッシュへ復元、を確認。
+- Evidence (Claude, 2026-11-15, レビュー第3回): ゲート通過の意味を明確化。`preflight`の自動ゲート（差分の判断、rsync空実行の一致、バックアップのスナップショットと現在のSiteの一致、アーカイブを展開してスナップショットと一致）を必須にし、`data`判定のパスを含む同期は承認記録（承認者・日付・範囲・D1バックアップ・ロールバック計画）がそろうまで止める。承認記録は「記録の有無だけを確認、真偽は人が保証」と出力に明記。メッセージを`GATES PASSED`（同期してよい、デプロイ後の確認は別）に変更。初回リリースの説明から固定のSHAと変更範囲を除き、実際の最新SHAで`release:plan`を毎回実行する設計に変更。テスト3件追加（全77件PASS）、ミューテーション3種を検出、tarバックアップを使った通しの試験を実施。
+- Evidence (Claude, 2026-11-15, レビュー第4回): (1) データ変更の判定をパスだけに頼らないよう、配信コードの中身から端末の保存データに関わる変更（`kifu-rival.v*`・`STORAGE_KEY`・`localStorage`のキー、`removeItem`・`clear`・`deleteDatabase`の追加）を検出する`storageChange`を追加し、`release:plan`（Gitの差分、全配信コード）と`preflight`（Site側とGitHub側の中身の比較）の両方で使用。`preflight`は`release:plan`の結果（同じSHAであること）とGitHubのチェックアウトを必須とし、判定は3つのうち最も重いものを採用するため、`data`を承認ゲートなしに通す経路をなくした。(2) スキャン対象外（除外ディレクトリ・除外ファイル・シンボリックリンク・特殊ファイル）を理由付きで一覧化し、シンボリックリンクと特殊ファイルは停止、除外パスは`release.mjs excludes`の同じ定義でrsyncから除外して削除・上書きしない。テスト5件追加（全82件PASS）、ミューテーション5種を検出、Site側の古い保存キー・シンボリックリンク・`.dev.vars`・`.wrangler/state`を置いた通しの試験を実施。
+- Evidence (Claude, 2026-11-15, レビュー第5回): 保存処理の検出漏れ2件（括弧の前の空白・改行、`removeItem(STORAGE_KEY)`→`clear()`の同数置換）を修正。比較前にコメント除去と空白・改行の除去を行い、保存に関わる文を引数まで含めて多重集合で比較、判定できない変更も`data`とする。実際のmain（`7f9e5fc`）の`release:plan`で、コメント中の単語による誤検出を見つけて修正（コメントを除去）。修正後の判定は`data`（`app/rival-app.tsx`の保存内容に`declarationRule`・`lessonAttempts`が追加されたため）で、初回リリースには承認記録が必要。テスト7件追加（実際のGit差分での`plan`、実ファイルでの`preflight`を含む。全89件PASS）、ミューテーション4種を検出。
+- Evidence (Claude, 2026-11-15, レビュー第6回): 保存処理の比較を「文字列を壊す前処理」から、依存関係のTypeScriptパーサーによる字句単位の比較に変更（コメントは字句にならず、文字列の中身は保持）。`getItem("lesson history")`→`"lessonhistory"`と、`"//cdn.example"`と同じ行の`clear()`追加を、実際のGit差分の`plan`と実ファイルの`preflight`で`data`判定・承認なしで停止することを回帰に追加（前回の2ケース、画面のみの変更、承認付き通過も維持）。テスト全95件PASS、文字列を壊す前処理を戻すミューテーション2種を検出。端末内データ（localStorage）はソースのtarでは保全できないため、`data`判定の承認記録に`deviceDataBackup`を必須化し、アプリ内の書き出し・読み込み（KIF-050）ができるまで`data`判定のリリースを行わないと手順書に明記。最新main（`07e972a`）の判定は引き続き`data`（`app/rival-app.tsx`の保存内容の変更）。
+- Next: KIF-050で記録の書き出し・読み込みを実装してから、初回リリース（`data`判定）をChatGPT側で行う。
+- Next: ChatGPT（Sites権限保持者）が`docs/RELEASE.md`の§初回リリースを実施し、Site versionとGitHub SHAの対応・`verify`結果・アクセス設定の事後確認を記録する。成功を確認してから`VERIFIED`とする。アプリ内にビルドSHAを表示する案（Siteで今どの版が動いているかを画面で確認できる）を次の改善候補とする。
 
 ## KIF-010 — 将棋ルール・合法手の完全性
 - Status: IN_PROGRESS

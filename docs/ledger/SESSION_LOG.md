@@ -54,6 +54,7 @@
 - Verification at writing: 自動マージ条件の単体テスト4件を追加し、全体17件PASS。**GitHub CIでの本番実行・安全PR自動マージ・main ruleset設定はまだ未実施**。外部へのGitHubソース公開操作・追加の回帰テスト結果は後続の記録で追記する。
 - Data impact: アプリ本体・D1・棋譜・Site公開権限への操作なし。GitHubの自動マージはPrivate Siteデプロイとは独立。
 - Next: 公開対象スナップショットを追加検査し、新Public repoへ初回import。Github Actionsで実際の動作を確認し、branch protectionを設定する。
+
 ## 2026-11-15 — Public GitHub初回インポートとCI実行を確認
 
 - Actor: ChatGPT
@@ -61,3 +62,12 @@
 - CI evidence: `Source validation`の初回push実行 [run 43696606531](https://github.com/setisunyuma/kifu-rival/actions/runs/43696606531) は`verify`ジョブ成功。`npm ci`, `public:check`, `ledger:check`, unit, lint, typecheck, buildの各ステップがすべて成功。
 - Auto-merge experiment: この追記だけの同一repo PRを使い、`workflow_run`のデータと自動マージ判定を実地検証する。PR作成・マージはこの記録時点ではまだ未確認。
 - Pending: Claude Codeクラウドからのclone/PR作成確認、保護rulesetの設定、Private Siteの同期経路。これらは成功を確認するまで完了扱いしない。
+
+## 2026-11-15 — PR #1の自動マージが成功
+
+- Actor: ChatGPT
+- Pull request: [PR #1](https://github.com/setisunyuma/kifu-rival/pull/1) は`docs/ledger/SESSION_LOG.md`だけを追記。本人`setisunyuma`作成・同一repoブランチ。変更ファイル数1、削除・重要設定変更なし。
+- Evidence: [Source validation run 43696850845](https://github.com/setisunyuma/kifu-rival/actions/runs/43696850845) が成功後、[Guarded auto-merge run 43696911543](https://github.com/setisunyuma/kifu-rival/actions/runs/43696911543)が`squash merge`を実行して成功。GitHub PRは`merged=true`、merge commit `a1fb7f516487fb4092f601169a482a7463dd79ff`。初回CIのpush runから起動した自動マージJobは意図どおりskipped。
+- Validation: GitHub APIの`workflow_run`ではPRのhead・base SHA、検証元workflowパス、同一repoを確認でき、PRの現在のtest merge commitとも照合できた。17単体テストはPASS。**本当に無人マージされた事実を確認した**。
+- Remaining: 高リスクPR拒否の実地確認は単体テストのみ。main rulesetはGitHub API上空配列で、GitHub管理画面はログイン要求のため未設定。Claude Codeクラウドからのclone/PR、ChatGPT Sitesへの同期も未確認。Private Siteのアクセス権・DBは変更していない。
+- Next: 本文書・Claude引継ぎ・作業台帳を実施済みの状態に更新し、PRに記録。管理権限のあるGitHubブラウザでmain Rulesetを設定する。

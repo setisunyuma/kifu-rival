@@ -32,5 +32,5 @@
 - 高リスク・未監査のPRは手動レビューに止める。毎回の無条件承認は不要だが、Site公開範囲・認証・データ・依存関係・第三者ライセンス・課金・自動化設定自体の変更は別扱いとする。
 
 - GitHub上のコミットやPRは、ChatGPT Sitesへの反映を意味しない。サイトのリリース/ロールバックは `docs/OPERATIONS.md` の経路で実施する。
-- GitHub移管先は `setisunyuma/kifu-rival`（Public）。2026-11-15に空リポジトリの作成を確認。**ソース移管とClaude Codeのclone/PR検証までは未完了**。非公開SiteのURLとソース取得経路を同一視しない。
+- GitHub開発正本は `setisunyuma/kifu-rival`（Public）。2026-11-15に**147ファイルのソース移管・初回CI・PR #1の自動マージ**を確認。**Claude Codeクラウドのclone/PR操作とmain Rulesetは未確認**。非公開SiteのURLとソース取得経路を同一視しない。
 - この `AGENTS.md` と `CLAUDE.md` は重複指示を増やす場所ではない。長期状態は台帳へ集約する。

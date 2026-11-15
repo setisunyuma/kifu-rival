@@ -9,7 +9,7 @@
 - **確認済みSite version**: 4（本改訂前に確認。更新後はSESSION_LOGを優先）
 - **実行基盤**: Cloudflare Worker（Vinext/Next.js）、D1 binding `DB`
 - **開発ソース**: このリポジトリ。初期ローカルGitには `origin` が未設定だった。
-- **Claude Code用GitHub**: `setisunyuma/kifu-rival`（**Public、空リポジトリ作成確認済み**）。移管状況は`KIF-002`参照。
+- **Claude Code用GitHub**: `setisunyuma/kifu-rival`（**Public、147ファイル移管/初回CI・PR自動マージ成功**）。Claude Codeクラウドからのcloneは未検証。`KIF-002`参照。
 - **Public/Private境界**: ソースGitHubは公開、棋友を遊ぶSiteは本人限定。GitHubの可視性変更でSiteの権限を変更してはならない。
 
 ## ローカル開発
@@ -37,16 +37,16 @@
 
 **Claude Code環境だけでChatGPT Sitesの公開権限があるとは限りません。** GitHub上での修正はまずPR/コミットとして提出し、ChatGPT Sitesの公開は必要な権限を持つ側で行います。デプロイの自動化は `KIF-003` で別途検証します。
 
-## GitHubへの移管（Public repo作成済み、ソース移管・CI確認は別）
+## GitHubへの移管（初回スナップショットの移管とCIは成功済み）
 
-1. **作成確認済み**: `setisunyuma/kifu-rival`はPublicで、初回確認時は`size=0`の空repo。既存ソースにREADME/ignoreがあり、`LICENSE`はQ-008で未決。
+1. **作成・移管確認済み**: `setisunyuma/kifu-rival`はPublic。最初は`size=0`の空repoだったが、現在スナップショット147ファイルを新Git履歴で移管し、初回`Source validation`成功とPR #1自動マージ成功を確認済み。既存ソースにREADME/ignoreがあり、`LICENSE`はQ-008で未決。
 2. `npm run public:check` と [PUBLIC_RELEASE_CHECKLIST.md](PUBLIC_RELEASE_CHECKLIST.md) に従って**実際に公開するスナップショット**を点検する。Git履歴全体は未監査のため、初回のGitHubインポートでは過去履歴を公開せず**検査済みZIPの内容だけ**を新しい履歴へcommitすることを推奨。`git push --mirror` や全履歴の無確認pushは禁止。
 3. GitHub権限を持つ環境（ユーザーのローカルPCかClaude CodeのGitHub連携）で、空リポジトリをcloneし、提供されたZIPを展開して**ZIP内の`kiyu/`の中身**をcloneしたリポジトリのルートにコピーする。`AGENTS.md`、`CLAUDE.md`、`.github/workflows/verify.yml`、`.openai/hosting.json`、隠しファイルも含める。Gitに元からある`.git/`は残し、ZIPからGit履歴・鍵・ランタイム成果物を取り込まない。
 4. `git status`で内容を確認→`npm ci`→`npm run public:check`→`npm run ledger:check`→`npm run test:unit`→`npm run lint`→`npx tsc --noEmit`→`npm run build`。合格後、`git add .`→`git commit`→`git push`。デプロイ鍵を使わない公開ソースCIの実行結果を確認する。
 5. Claude CodeがPublicリポジトリをcloneできること、台帳を読めること、PRまたはコミットを書ける権限が必要なときは自分のGitHub連携を使うことを確認する。`KIF-002`の受入証拠を追記する。
 6. 以後 **GitHub=開発ソース・台帳の正本 / Private ChatGPT Sites=試作版の実行先**。Claudeは作業ブランチとPRを作り、CIに通った限定変更は`docs/AUTOMERGE_POLICY.md`に従い自動マージする。Site更新は権限のあるChatGPT側と同期・明示的デプロイする。同期経路確立前に両者を独立して別々に編集しない。
 
-この環境のGitHubコネクタには新規リポジトリ作成操作がなく、`gh`のログインも確認できなかったが、その後ユーザーのGitHub接続で**作成済みPublic repo**を確認。**移管・CI・Claude cloneは個別に証拠が揃うまで完了扱いしない**。GitHub Publicの無料CI枠は権利・実行条件の最新公式情報を適用し、予期しない有料機能は承認なしで有効にしない。
+この環境のGitHubコネクタには新規リポジトリ作成操作がなく、`gh`のログインも確認できなかったが、その後ユーザーのGitHub接続で**Public repo・ソース移管・GitHub Actions成功を確認済み**。**Claude Codeクラウドからのclone/PR、main Rulesetの設定は別途確認が必要**。GitHub Publicの無料CI枠は権利・実行条件の最新公式情報を適用し、予期しない有料機能は承認なしで有効にしない。
 
 ## 自動マージの運用と独立したリリース
 

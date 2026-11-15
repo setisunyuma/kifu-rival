@@ -20,7 +20,7 @@
 ## 受け渡しの現在地
 
 - **方針は確定**: GitHubソース＝**Public**。ChatGPT Sitesのアプリ＝**本人限定のPrivate**。GitHubへpushするだけではSiteが更新・公開されない。
-- **作成確認済み**: `setisunyuma/kifu-rival`はPublicの空リポジトリ。**未完了**: 検証済みソースのGitHub移管、Claude Codeからのclone、最初のGitHub Actions実行・自動マージの実地確認。repoの作成と移管を混同しない。
+- **実施済み**: `setisunyuma/kifu-rival`はPublic。147ファイルのソースを新履歴で移管し、GitHub Actionsの初回`verify`成功とPR #1の無人`squash merge`成功を確認。**未完了**: Claude CodeクラウドからのcloneとPR操作、GitHub Rulesetの設定・拒否系PRの実地検証。GitHubとPrivate Siteは独立している。
 - **渡す現物**: Gitに追跡した最新の**ソース全体を収めたZIP**。ClaudeにはZIPを読み込ませるか、ZIPの内容をPublic GitHubリポジトリに初回commitした後でリポジトリURLを渡す。SiteのURLだけではソースを受け取れない。
 - **ライセンス**: プロジェクト自身のルート`LICENSE`未選択（Q-008）。YaneuraOu/Apery等は本体と評価関数・定跡を独立して確認し、USI別プロセス構成でもGPL対応が自動的に不要になるわけではない。
 
@@ -38,6 +38,6 @@
 
 ## 注意事項
 
-- Public GitHubは作成されたが、ソース移管・clone・最初のPR動作の確認が残る。移管時はGit履歴全体を無確認で公開せず、検査済みスナップショットから開始する。単なるPrivate Site URLではソースをcloneできない。
+- Public GitHubへの現在スナップショット移管と最初のPR自動マージは成功。Claude Codeクラウドにリポジトリを選ばせ、cloneとPR操作を確認する。旧SitesのGit履歴は公開GitHubへ持ち込まなかった。単なるPrivate Site URLではソースをcloneできない。
 - この引継ぎ票自体は**Claudeがソースを受領済みである証拠ではない**。受領・初期テスト完了は `KIF-002` に記録する。
 - ChatGPT側はプロダクト設計やQAに参加し続けられる。二つのAIが独立に別の台帳を作らず、必ず同じ `docs/ledger/` を編集する。

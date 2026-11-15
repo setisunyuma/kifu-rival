@@ -8,7 +8,7 @@
 
 - 盤・駒・UI、最低限の合法手処理、4段階の弱いヒューリスティックAI、6教材、ルールベース会話、履歴保存が存在する。
 - **強い将棋エンジン・人間らしいレーティング制御・生成会話・体系的な初心者〜有段教材はまだない**。Lv.4の棋力が低いというユーザーフィードバックがある。
-- 現行サイトはChatGPT Sites上の**本人限定の非公開試作**。GitHub正本は**Publicソース**（`setisunyuma/kifu-rival`、空repo作成確認済み、移管・Claude cloneの実測は未確認）。GitHubにpushしてもSite本番は更新されない。
+- 現行サイトはChatGPT Sites上の**本人限定の非公開試作**。GitHub正本は**Publicソース**（`setisunyuma/kifu-rival`、147ファイル移管・CI/PR自動マージ実測済み）。**Claude Codeクラウドからのclone/PR操作とmain Rulesetは未確認**。GitHubにpushしてもSite本番は更新されない。
 - GitHubでは**ブランチ→PR→読取専用CI→条件付き自動`squash merge`**を基本運用とする。変更前に[`docs/AUTOMERGE_POLICY.md`](docs/AUTOMERGE_POLICY.md)を読む。認証・DB・依存関係・OSS/権利・公開権限・GitHub Actionsの変更などは自動対象から除外される。
 - **Publicソースに現実の棋譜・会話・個人メール・鍵を含めない**。`LICENSE` は未決定で、第三者エンジンのGPL条件とは別の判断。CIには本番Secretsを渡さない。
 - 私的な記録を保存するブラウザlocalStorage／D1の互換性を壊さない。移行は後方互換とバックアップ手順を設ける。

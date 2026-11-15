@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyMove, fromSfen, Game, initialGame, isInCheck, Kind, legalMoves, playMove, puzzleGame, Side, toSfen, usi } from "../lib/shogi";
+import { applyMove, checkDeclaration, fromSfen, Game, initialGame, JISHOGI_MOVE_LIMIT, materialPoints, isInCheck, Kind, legalMoves, playMove, puzzleGame, Side, toSfen, usi } from "../lib/shogi";
 import { LESSONS } from "../lib/lessons";
 
 test("starting position has the right number of pieces and legal pawn moves", () => {
@@ -260,4 +260,103 @@ test("games saved before positionLog existed keep working and count repetitions 
   const next = play(legacy, "9i9h");
   assert.equal(next.positionLog?.length, 2);
   assert.equal(next.positionLog?.[0].key, toSfen(legacy));
+});
+
+// ---------------------------------------------------------------------------
+// KIF-010 jishogi / entering king. Source: JSA 対局規則 第2章第9条
+// (制定 2024-06-07, 改定 2025-10-01) and the JSA FAQ amateur declaration method.
+// ---------------------------------------------------------------------------
+
+/** Rotate the position 180° and swap colours, so a black test also covers white. */
+function mirrored(g: Game): Game {
+  const board = g.board.map((_, r) => g.board[8 - r].map((_, c) => {
+    const p = g.board[8 - r][8 - c];
+    return p ? { ...p, owner: p.owner === "black" ? "white" as const : "black" as const } : null;
+  }));
+  return { ...g, board, hands: { black: { ...g.hands.white }, white: { ...g.hands.black } }, turn: g.turn === "black" ? "white" : "black" };
+}
+
+// Black king entered on 5b with 12 pieces in camp worth 20 points; hand adds the rest.
+const enteredKing: Placement[] = [
+  { r: 1, c: 4, kind: "OU", owner: "black" },
+  { r: 0, c: 0, kind: "HI", owner: "black" }, { r: 0, c: 8, kind: "KA", owner: "black" },
+  { r: 0, c: 3, kind: "KI", owner: "black" }, { r: 0, c: 5, kind: "KI", owner: "black" },
+  { r: 1, c: 3, kind: "GI", owner: "black" }, { r: 1, c: 5, kind: "GI", owner: "black" },
+  ...[0, 1, 2, 6, 7, 8].map(c => ({ r: 2, c, kind: "FU" as Kind, owner: "black" as Side })),
+  { r: 8, c: 4, kind: "OU", owner: "white" },
+];
+
+test("material points: rook and bishop 5, every other piece 1, king excluded (27 each at the start)", () => {
+  assert.equal(materialPoints(initialGame(), "black"), 27);
+  assert.equal(materialPoints(initialGame(), "white"), 27);
+  const g = puzzleGame(enteredKing, { black: { HI: 1, KA: 1, FU: 3 } });
+  g.board[0][0]!.promoted = true; // a dragon still counts 5
+  assert.equal(materialPoints(g, "black"), 33);
+});
+
+test("entering-king declaration (JSA rule): 31+ wins, 24-30 is no result, counted from hand and camp only", () => {
+  const win = puzzleGame(enteredKing, { black: { KA: 1, HI: 1, FU: 3 } });
+  const result = checkDeclaration(win, "black", "jsa");
+  assert.deepEqual({ ...result, rule: undefined }, { rule: undefined, side: "black", onTurn: true, kingInCamp: true, piecesInCamp: 12, notInCheck: true, points: 33, outcome: "win" });
+
+  const outsideCamp = puzzleGame([...enteredKing, { r: 4, c: 0, kind: "HI", owner: "black" }], { black: { KA: 1, FU: 3 } });
+  assert.equal(checkDeclaration(outsideCamp, "black", "jsa").points, 28, "the rook on 9e is outside the camp and does not count");
+  assert.equal(checkDeclaration(outsideCamp, "black", "jsa").outcome, "draw");
+});
+
+test("JSA declaration boundaries: 23 loses, 24 and 30 are no result, 31 wins", () => {
+  // 20 points in camp; add pawns in hand to reach each boundary.
+  const at = (pawns: number) => checkDeclaration(puzzleGame(enteredKing, { black: { FU: pawns } }), "black", "jsa");
+  assert.deepEqual([3, 4, 10, 11].map(n => [at(n).points, at(n).outcome]), [[23, "lose"], [24, "draw"], [30, "draw"], [31, "win"]]);
+});
+
+test("the same 28-point position is a JSA no-result but an amateur-27 win; 27 points wins only for gote", () => {
+  const p28 = puzzleGame(enteredKing, { black: { KA: 1, FU: 3 } });
+  assert.equal(checkDeclaration(p28, "black", "jsa").outcome, "draw");
+  assert.equal(checkDeclaration(p28, "black", "amateur27").outcome, "win");
+
+  const p27 = puzzleGame(enteredKing, { black: { KA: 1, FU: 2 } });
+  assert.equal(checkDeclaration(p27, "black", "amateur27").points, 27);
+  assert.equal(checkDeclaration(p27, "black", "amateur27").outcome, "lose", "sente needs 28");
+  const gote = checkDeclaration(mirrored(p27), "white", "amateur27");
+  assert.equal(gote.points, 27);
+  assert.equal(gote.outcome, "win", "gote needs 27");
+});
+
+test("a declaration that misses any condition loses, however many points", () => {
+  const rich = { black: { HI: 1, KA: 1, KI: 2, GI: 2, FU: 9 } };
+  const ninePieces = puzzleGame(enteredKing.map(p => p.r === 2 && p.c <= 2 ? { ...p, r: 3 } : p), rich);
+  assert.equal(checkDeclaration(ninePieces, "black").piecesInCamp, 9);
+  assert.equal(checkDeclaration(ninePieces, "black").outcome, "lose");
+
+  const kingOutside = puzzleGame(enteredKing.map(p => p.kind === "OU" && p.owner === "black" ? { ...p, r: 3 } : p), rich);
+  assert.equal(checkDeclaration(kingOutside, "black").kingInCamp, false);
+  assert.equal(checkDeclaration(kingOutside, "black").outcome, "lose");
+
+  const inCheck = puzzleGame([...enteredKing, { r: 0, c: 4, kind: "KI", owner: "white" }], rich);
+  assert.equal(checkDeclaration(inCheck, "black").notInCheck, false);
+  assert.equal(checkDeclaration(inCheck, "black").outcome, "lose");
+
+  const notOnTurn = puzzleGame(enteredKing, rich);
+  notOnTurn.turn = "white";
+  assert.equal(checkDeclaration(notOnTurn, "black").outcome, "lose");
+  assert.equal(checkDeclaration(puzzleGame(enteredKing, rich), "black").outcome, "win");
+});
+
+test("500 moves without a result is jishogi (draw), postponed while a run of checks continues", () => {
+  const filler = Array.from({ length: JISHOGI_MOVE_LIMIT - 1 }, () => ({ to: { r: 0, c: 0 } }));
+  const quiet = puzzleGame([{ r: 8, c: 0, kind: "OU", owner: "black" }, { r: 0, c: 8, kind: "OU", owner: "white" }]);
+  quiet.history = [...filler];
+  assert.equal(play(quiet, "9i9h").result, "draw");
+
+  const checking = puzzleGame([
+    { r: 8, c: 0, kind: "OU", owner: "black" },
+    { r: 5, c: 7, kind: "HI", owner: "black" },
+    { r: 0, c: 8, kind: "OU", owner: "white" },
+  ]);
+  checking.history = [...filler];
+  const atLimit = play(checking, "2f1f"); // 500th move gives check
+  assert.equal(atLimit.history.length, JISHOGI_MOVE_LIMIT);
+  assert.equal(atLimit.result, "playing");
+  assert.equal(play(atLimit, "1a2a").result, "draw", "the reply escapes and gives no check");
 });

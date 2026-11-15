@@ -267,12 +267,73 @@ function repetitionResult(log: PositionRecord[]): Game["result"] {
   return "draw";
 }
 
+/**
+ * JSA 対局規則 第2章第9条第6項 (2024-06-07, rev. 2025-10-01): at 500 moves the game is
+ * jishogi (no result, replayed). If the side to move is in check at that point, it
+ * becomes jishogi once the run of checks is broken. The app records it as a draw.
+ */
+export const JISHOGI_MOVE_LIMIT = 500;
+
 export function playMove(game: Game, move: Move): Game {
   const next = applyMove(game, move);
   next.positionLog = [...(game.positionLog ?? [positionRecord(game)]), positionRecord(next)];
   if (legalMoves(next, next.turn).length === 0) next.result = game.turn;
   else next.result = repetitionResult(next.positionLog);
+  if (next.result === "playing" && next.history.length >= JISHOGI_MOVE_LIMIT && !isInCheck(next, next.turn)) next.result = "draw";
   return next;
+}
+
+/**
+ * Entering-king (入玉) declaration rules.
+ * - "jsa": JSA 対局規則 第9条第5項 (current official rule): win with 31+ points,
+ *   no result (replay; recorded as a draw) with 24-30 points.
+ * - "amateur27": the declaration method described in the JSA FAQ for amateur
+ *   tournaments (and used by CSA computer shogi): sente needs 28+, gote 27+.
+ * In both, failing any condition makes the declarer LOSE.
+ */
+export type DeclarationRule = "jsa" | "amateur27";
+
+export type DeclarationCheck = {
+  rule: DeclarationRule;
+  side: Side;
+  /** It is the declarer's turn (declaring replaces making a move). */
+  onTurn: boolean;
+  kingInCamp: boolean;
+  /** Declarer's pieces, king excluded, within the enemy's three ranks. Needs 10+. */
+  piecesInCamp: number;
+  notInCheck: boolean;
+  /** Major pieces (rook/bishop, promoted or not) 5, others 1; hand + pieces in camp only. */
+  points: number;
+  outcome: "win" | "draw" | "lose";
+};
+
+const piecePoints = (kind: HandKind | Kind) => (kind === "HI" || kind === "KA" ? 5 : 1);
+
+/** 第9条第4項の一: every piece the side owns, on board and in hand, king excluded. */
+export function materialPoints(game: Game, side: Side): number {
+  let points = 0;
+  for (const row of game.board) for (const p of row) if (p && p.owner === side && p.kind !== "OU") points += piecePoints(p.kind);
+  for (const kind of HAND_ORDER) points += game.hands[side][kind] * piecePoints(kind);
+  return points;
+}
+
+export function checkDeclaration(game: Game, side: Side = game.turn, rule: DeclarationRule = "jsa"): DeclarationCheck {
+  let kingInCamp = false, piecesInCamp = 0, points = 0;
+  for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) {
+    const p = game.board[r][c];
+    if (!p || p.owner !== side || !inZone(side, r)) continue;
+    if (p.kind === "OU") { kingInCamp = true; continue; }
+    piecesInCamp++;
+    points += piecePoints(p.kind);
+  }
+  for (const kind of HAND_ORDER) points += game.hands[side][kind] * piecePoints(kind);
+  const onTurn = game.turn === side && game.result === "playing";
+  const notInCheck = !isInCheck(game, side);
+  const conditions = onTurn && kingInCamp && piecesInCamp >= 10 && notInCheck;
+  let outcome: DeclarationCheck["outcome"] = "lose";
+  if (conditions && rule === "jsa") outcome = points >= 31 ? "win" : points >= 24 ? "draw" : "lose";
+  if (conditions && rule === "amateur27") outcome = points >= (side === "black" ? 28 : 27) ? "win" : "lose";
+  return { rule, side, onTurn, kingInCamp, piecesInCamp, notInCheck, points, outcome };
 }
 
 export function matchMove(a: Move, b: Move) {

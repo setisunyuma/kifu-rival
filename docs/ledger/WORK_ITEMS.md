@@ -162,7 +162,7 @@
 - Depends: KIF-002
 - Acceptance: TypeScript、lint、ユニット、基本E2E、台帳検査、ビルドがPRごとに走り、失敗時にmerge/公開を防ぐ。
 - Evidence: Secretsとデプロイ権限を渡さない `.github/workflows/verify.yml` を追加。GitHub初回pushの[run 43696606531](https://github.com/setisunyuma/kifu-rival/actions/runs/43696606531)とPR #1の[run 43696850845](https://github.com/setisunyuma/kifu-rival/actions/runs/43696850845)はいずれも`verify`成功。main Ruleset `Protect main`有効化とPR #5の保護下自動マージを確認。基本E2Eは未導入。
-- Next: GitHub SettingsでmainのPR必須・`verify`必須・force push禁止を設定し、ブラウザE2E検証を追加してから `VERIFIED` とする。
+- Next: mainのPR必須・`verify`必須・force push禁止は`Protect main`で設定・PR #5で検証済み。ブラウザE2E検証を追加してから `VERIFIED` とする。
 
 ## KIF-062 — Publicソースの機密・ライセンス公開点検
 - Status: VERIFIED

@@ -79,3 +79,10 @@
 - Refusal evidence: [Guarded auto-merge run 43697230268](https://github.com/setisunyuma/kifu-rival/actions/runs/43697230268)の実行ログに`Manual review: PR #2: Manual review explicitly requested`と出力され、PRは`merged=false`のまま停止。除外経路を実際に検証。
 - Manual follow-up: 内容とCIを確認し、SHA固定の手動squash mergeを実行。結果コミット`7ca63192dceb91c4b57a677717f376d9c7dd254e`。自動ガードによるマージではない。
 - Remaining: `main` Rulesetは未設定、Claude Codeクラウドからのclone/PR発行は未確認。`KIF-063`はIN_PROGRESSのまま。サイトの非公開設定・デプロイは不変。
+
+## 2026-11-15 — Rulesetの有効化後に自動マージを再検証
+
+- Actor: ChatGPT
+- GitHub setting: `setisunyuma/kifu-rival`のRuleset `Protect main`（ID `27308076`）をAPIで確認。`active`、default branch対象、pull_request必須・承認数0・必要チェック`verify`・branch deletion禁止・force push禁止・Squashのみ・strict status checksはOFF・bypassなし。
+- Experiment: この台帳追記のみを安全な同一repo PRとして提案。`Source validation`と`Guarded auto-merge`が**保護ルール適用後**も動くかを確認する。PR作成時点ではマージ成功を未確認とし、結果は別記録で追記する。
+- Scope: ChatGPT SitesのPrivate設定、D1、実際の棋譜、デプロイには変更なし。Claude Codeクラウドの接続は引き続き未確認。

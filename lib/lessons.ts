@@ -56,10 +56,33 @@ export const SKILLS: Record<SkillId, { name: string; requires: SkillId[] }> = {
  * How the answer is verified automatically (quality layer L2, docs/CURRICULUM.md §4).
  * - "move": the goal names one specific move; only legality is checked.
  * - "capture" / "check": the answer must capture / give check.
- * - "mate-in-1": the answer must mate, and every other mating move must be listed in
- *   `alsoMates` (or the position fixed), so a correct alternative is never rejected silently.
+ * - "mate-in-N" (1/3/5): under tsume rules (every attacking move checks) the answer must force
+ *   mate within N plies, and every other first move that does must be listed in `alsoMates`
+ *   (or the position fixed), so a correct alternative is never rejected silently.
  */
-export type LessonVerify = "move" | "capture" | "check" | "mate-in-1";
+export type LessonVerify = "move" | "capture" | "check" | "mate-in-1" | "mate-in-3" | "mate-in-5";
+
+/**
+ * Educational review record (quality layer L3, docs/CURRICULUM.md §4.2). Kept separate
+ * from machine verification: tests only check that the record is well-formed, never that
+ * the lesson is pedagogically good. `status` stays "draft" until a person reviews it;
+ * a draft written by Claude is a proposal, not a review.
+ */
+export type LessonReview = {
+  status: "draft" | "reviewed" | "needs-revision";
+  /** Intended level and the skills a learner should already have. */
+  target: string;
+  /** What the learner can do after solving it. */
+  purpose: string;
+  /** Typical wrong answers and why they are wrong. */
+  misconceptions: string[];
+  /** Difficulty as intended (1 = first contact ... 5 = dan level). Compared with real data in L4. */
+  intendedDifficulty: 1 | 2 | 3 | 4 | 5;
+  history: { date: string; by: string; note: string }[];
+  /** Filled only by the person who reviewed it (status "reviewed"). */
+  reviewedBy?: string;
+  reviewedOn?: string;
+};
 
 /** Provenance (quality layer L0). Problems from books or other sites are never used. */
 export type LessonSource = { kind: "original"; author: string; method: string };
@@ -70,6 +93,7 @@ export type Lesson = {
   verify: LessonVerify;
   alsoMates?: string[];
   source: LessonSource;
+  review: LessonReview;
   title: string;
   category: string;
   stage: string;
@@ -88,40 +112,46 @@ const kings = [
 
 export const LESSONS: Lesson[] = [
   {
-    id: "first-pawn", skills: ["A1"], verify: "move", source: { kind: "original", author: "ChatGPT（試作第1号）", method: "手作業で作成、Claudeが自動検証（2026-11-15）" },
+    id: "first-pawn", review: { status: "draft", target: "入門。前提なし（盤と駒を初めて触る）", purpose: "歩が前に1マス進むことを知り、駒を選んで動かす操作に慣れる", misconceptions: ["違う歩を動かす（どの歩でも前には進めるが、お題は7筋）"], intendedDifficulty: 1, history: [{ date: "2026-11-15", by: "Claude", note: "L3の下書き。人のレビューは未実施" }] },
+    skills: ["A1"], verify: "move", source: { kind: "original", author: "ChatGPT（試作第1号）", method: "手作業で作成、Claudeが自動検証（2026-11-15）" },
     stage: "01", category: "入門", title: "はじめの一歩", summary: "歩を動かして、将棋の盤に慣れよう。",
     explanation: "将棋は先手と後手が交互に駒を動かすゲーム。歩は前に1マスだけ進める。自分の駒がある場所には進めないよ。",
     goal: "7七の歩を7六へ進めてみよう。", hint: "盤の下から3段目、左寄りの「歩」をタップして、一つ上のマスへ。", answer: "7g7f", setup: initialGame,
   },
   {
-    id: "rook-pawn", skills: ["A1", "G1"], verify: "move", source: { kind: "original", author: "ChatGPT（試作第1号）", method: "手作業で作成、Claudeが自動検証（2026-11-15）" },
+    id: "rook-pawn", review: { status: "draft", target: "入門。歩の動き（A1）", purpose: "飛車の前の歩を突いて大駒の通り道を作る、序盤の第一歩を知る", misconceptions: ["飛車そのものを動かそうとする（歩が邪魔で動けない理由を説明する）"], intendedDifficulty: 1, history: [{ date: "2026-11-15", by: "Claude", note: "L3の下書き。人のレビューは未実施" }] },
+    skills: ["A1", "G1"], verify: "move", source: { kind: "original", author: "ChatGPT（試作第1号）", method: "手作業で作成、Claudeが自動検証（2026-11-15）" },
     stage: "01", category: "入門", title: "飛車の道をつくる", summary: "序盤の基本となる飛車先の歩を進める。",
     explanation: "飛車は縦横に何マスでも進める強力な駒。最初は歩に道をふさがれている。飛車の前の歩を突いて、働ける道を少しずつ作ろう。",
     goal: "2七の歩を2六へ。", hint: "右から2列目の歩を一つ前へ。", answer: "2g2f", setup: initialGame,
   },
   {
-    id: "gold-step", skills: ["A1"], verify: "move", source: { kind: "original", author: "ChatGPT（試作第1号）", method: "手作業で作成、Claudeが自動検証（2026-11-15）" },
+    id: "gold-step", review: { status: "draft", target: "入門。歩の動き", purpose: "金の動き（斜め後ろには動けない）を体験する", misconceptions: ["斜め後ろへ動かそうとする（金は斜め後ろに動けない）"], intendedDifficulty: 1, history: [{ date: "2026-11-15", by: "Claude", note: "L3の下書き。人のレビューは未実施" }] },
+    skills: ["A1"], verify: "move", source: { kind: "original", author: "ChatGPT（試作第1号）", method: "手作業で作成、Claudeが自動検証（2026-11-15）" },
     stage: "01", category: "入門", title: "金で玉を守る", summary: "金将の動き方を体験しよう。",
     explanation: "金は前・横・真後ろに動けるほか、斜め前にも進める。ただし斜め後ろには動けない。玉の近くを守るのが得意な駒だ。",
     goal: "5八の金を6七へ斜め前に動かそう。", hint: "中央の金を左上へ1マス。", answer: "5h6g",
     setup: () => puzzleGame([...kings, { r: 7, c: 4, kind: "KI", owner: "black" }]),
   },
   {
-    id: "capture-pawn", skills: ["A3"], verify: "capture", source: { kind: "original", author: "ChatGPT（試作第1号）", method: "手作業で作成、Claudeが自動検証（2026-11-15）" },
+    id: "capture-pawn", review: { status: "draft", target: "入門。駒の動き（A1）", purpose: "相手の駒を取ると持ち駒になることを知る", misconceptions: ["取らずに別の手を指す（取れる駒を見落とす）"], intendedDifficulty: 1, history: [{ date: "2026-11-15", by: "Claude", note: "L3の下書き。人のレビューは未実施" }] },
+    skills: ["A3"], verify: "capture", source: { kind: "original", author: "ChatGPT（試作第1号）", method: "手作業で作成、Claudeが自動検証（2026-11-15）" },
     stage: "02", category: "基本手筋", title: "駒を取ってみよう", summary: "相手の駒を取り、持ち駒にする。",
     explanation: "相手の駒があるマスへ移動すれば、その駒を取って自分の持ち駒にできる。取った駒は次の手以降に盤上へ打てるよ。",
     goal: "5六の歩で、5五の相手の歩を取ろう。", hint: "手前の歩を一つ前へ。相手の歩が持ち駒になる。", answer: "5f5e",
     setup: () => puzzleGame([...kings, { r: 5, c: 4, kind: "FU", owner: "black" }, { r: 4, c: 4, kind: "FU", owner: "white" }]),
   },
   {
-    id: "rook-check", skills: ["A4"], verify: "check", source: { kind: "original", author: "ChatGPT（試作第1号）", method: "手作業で作成、Claudeが自動検証（2026-11-15）" },
+    id: "rook-check", review: { status: "draft", target: "入門。駒の動き・飛車の利き", purpose: "王手の意味（次に玉を取れる状態）を知る", misconceptions: ["5筋以外で王手をかける（お題は5筋。他の王手も王手ではあることを説明する）"], intendedDifficulty: 2, history: [{ date: "2026-11-15", by: "Claude", note: "L3の下書き。人のレビューは未実施" }] },
+    skills: ["A4"], verify: "check", source: { kind: "original", author: "ChatGPT（試作第1号）", method: "手作業で作成、Claudeが自動検証（2026-11-15）" },
     stage: "02", category: "基本手筋", title: "王手をかける", summary: "相手の玉を直接狙う手を考える。",
     explanation: "次に玉を取れる状態を「王手」という。王手をかけられたら、必ず玉が取られないように応じなければならない。",
     goal: "6七の飛車を、玉と同じ5筋に動かして王手しよう。", hint: "飛車を右へ1マス。縦の利きが玉まで通る。", answer: "6g5g",
     setup: () => puzzleGame([...kings, { r: 6, c: 3, kind: "HI", owner: "black" }]),
   },
   {
-    id: "rook-mate", skills: ["A4", "C1"], verify: "mate-in-1", source: { kind: "original", author: "ChatGPT（試作第1号）", method: "手作業で作成、Claudeが自動検証（2026-11-15）" },
+    id: "rook-mate", review: { status: "draft", target: "入門〜15級。王手（A4）・持ち駒を打つ（A3）", purpose: "頭金型ではない基本の1手詰で、打った駒が守られていれば玉が取れないことを理解する", misconceptions: ["守りのない場所に飛車を打つ（玉に取られる）", "王手だが逃げ道が残る手を指す"], intendedDifficulty: 2, history: [{ date: "2026-11-15", by: "Claude", note: "L3の下書き。人のレビューは未実施" }] },
+    skills: ["A4", "C1"], verify: "mate-in-1", source: { kind: "original", author: "ChatGPT（試作第1号）", method: "手作業で作成、Claudeが自動検証（2026-11-15）" },
     stage: "02", category: "詰将棋", title: "はじめての一手詰", summary: "金の守りを利用して、飛車で玉を詰ます。",
     explanation: "王手を避ける合法手がなくなった状態を「詰み」という。この局面は飛車を1枚持っている。金の利きをよく見てみよう。",
     goal: "持ち駒の飛車を使って、一手で詰ませよう。", hint: "5二に飛車を打とう。飛車は金に守られている。", answer: "R*5b",

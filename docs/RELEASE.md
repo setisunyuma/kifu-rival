@@ -28,10 +28,12 @@ npm run release:plan -- --base <released>
 
 | 判定 | 意味 | 次の行動 |
 | --- | --- | --- |
-| `none` | 文書・テスト・CIのみ。配信物は変わらない | 配備は任意 |
+| `none` | 文書・テスト・CI・リポジトリ管理用スクリプトのみ（明示リストに載ったもの）。配信物は変わらない | 配備は任意 |
 | `app` | 画面・将棋ロジック・教材の変更 | 通常リリース。§2へ |
-| `runtime` | API・Worker・依存関係・ビルド設定・配信ファイルの削除 | `npm run build`と`npm start`でビルド済みWorkerを確認してから§2へ |
-| `data` | D1マイグレーション・スキーマ・hosting binding・認証・localStorageキーの変更 | **中断**（終了コード2）。§データ の条件をユーザーが承認するまで配備しない |
+| `runtime` | API・Worker・依存関係・ビルド設定・配信ファイルの削除・**どの規則にも当てはまらない未分類ファイル**・`package.json`のビルド／起動／インストール系スクリプトやnpmのライフサイクルフック（`preinstall`・`postinstall`・`prepare`等）の変更 | `npm run build`と`npm start`でビルド済みWorkerを確認してから§2へ |
+| `data` | D1マイグレーション・スキーマ・`drizzle.config.ts`・hosting binding・認証・localStorageキーの変更 | **中断**（終了コード2）。§データ の条件をユーザーが承認するまで配備しない |
+
+判定は**安全側**に倒す。分類規則に載っていない新しいファイルは`runtime`として確認対象にする。`package.json`は、依存関係・`engines`等が不変で、かつ変更されたスクリプトがすべて管理用（`lint`・`test`・`test:*`・`ledger:check`・`public:check`・`release:*`）の場合だけ`none`になる。
 
 ## 2. マニフェスト作成（準備担当）
 

@@ -6,7 +6,7 @@
 | --- | --- | --- | --- | --- | --- |
 | Q-001 | RESOLVED | Claudeが接続する**Public GitHub repo**の作成とURL。可視性はADR-007で解決済み | User | KIF-002, KIF-003, KIF-061 | 2026-11-15 GitHubコネクタで`setisunyuma/kifu-rival`のPublic・管理権限・size=0を確認。ソース移管・Claude cloneはKIF-002で別途検証 |
 | Q-002 | OPEN | 棋力の対象帯と難易度調整（例えば棋力の目標、使用する強さ基準） | User / Claude | KIF-022 | 実力測定のプロトコルを先に提案 |
-| Q-003 | OPEN | USI分離方針は採用済み。具体的なエンジン・実行場所・付属データライセンスの選択 | Claude調査 → User判断 | KIF-020, KIF-021, KIF-024 | 候補比較・実測・個別ライセンスレビューの後、選択 |
+| Q-003 | OPEN | USI分離方針は採用済み。具体的なエンジン・実行場所・付属データライセンスの選択 | Claude調査 → User判断 | KIF-020, KIF-021, KIF-024 | 2026-11-15: 評価関数ファイル不要の軽量エンジンをWeb Workerで動かす方針は支持（ADR-011）。採用エンジンはiPhone実測・YaneuraOu WASM比較・ライセンス確認の後に判断 |
 | Q-004 | OPEN | 会話LLMの提供元、月額コスト上限、送信可能な棋譜／会話の範囲 | User | KIF-040, KIF-041 | 費用・データ設計を提示して選択 |
 | Q-005 | OPEN | 長期記憶の保持期間、削除/エクスポート、機器間同期 | User | KIF-041, KIF-050 | プライバシーとバックアップ方針を提示 |
 | Q-006 | OPEN | 大規模教材の品質監修と外部棋譜・問題集の権利処理 | Claude調査 → User判断 | KIF-030, KIF-031 | 原著作物の無断転載をしない。自作・許諾済みデータの経路を比較 |
@@ -14,6 +14,6 @@
 | Q-008 | OPEN | 棋友が独自に書いたコードのルート`LICENSE`を何にするか | User / Claude提案 | KIF-002, KIF-024 | Publicでも著作権の利用許諾は自動で付与されない。外部エンジンの条件と将来像を照合して判断 |
 | Q-009 | RESOLVED | 自動マージのGitHub Actions実行、workflow_runの`base.sha`実測、`main`のruleset設定・検証 | ChatGPT / Claude | KIF-061, KIF-063 | 解決（2026-11-15）: Ruleset `Protect main`有効下でPR #5（ChatGPT発）とPR #7・#8（Claude Codeクラウド発）が無人マージ。`workflow_run`のbase SHAは毎回取得できた。PR #2・#6で要手動の保留、PR #7初回で失敗CIの保留も確認。欠落ケース・フォークPRの実地確認はKIF-063の残作業 |
 | Q-010 | RESOLVED | squashコミットの作者情報にGitHubアカウントの個人メールアドレスが残り、Public履歴で閲覧できる | User | KIF-062 | 2026-11-15ユーザー判断: 以前の判断どおり公開のままでよく、履歴の書換えは不要（ADR-010） |
-| Q-011 | OPEN | 持将棋・入玉の扱い（24点法・27点法・宣言法のどれを、対局のどの場面で使うか） | Claude提案 → User判断 | KIF-010 | 日本将棋連盟の現行規定を確認し、推奨仕様を`docs/ledger/WORK_ITEMS.md`のKIF-010と仕様書で提示する |
+| Q-011 | RESOLVED | 持将棋・入玉の扱い（24点法・27点法・宣言法のどれを、対局のどの場面で使うか） | Claude提案 → User判断 | KIF-010 | 2026-11-15ユーザー判断: Claudeの推奨案を採用（ADR-011）。既定は連盟の31点法、27点法を選択肢として残し、規則は対局開始時に確定 |
 
 `OPEN` のままでも実装できるタスクを切り分け、無用な停止を避ける。決着したら `RESOLVED` としてADRへの参照を追加し、行は削除しない。

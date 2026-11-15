@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { classifyChanges, compareManifest, listReleaseFiles, sameDependencies, sha256 } from "../scripts/release.mjs";
+import { classifyChanges, compareManifest, isMaintenanceScript, listReleaseFiles, sameDependencies, servingScriptsUnchanged, sha256 } from "../scripts/release.mjs";
 
 const m = (path: string, status = "M") => ({ status, path });
 
@@ -57,12 +57,36 @@ test("release verify: ignored local state is skipped and every difference is rep
   }
 });
 
-test("release plan: package.json counts as a dependency change only when install-relevant fields change", () => {
-  const before = { name: "x", scripts: { a: "1" }, dependencies: { react: "19" }, engines: { node: ">=22" } };
-  assert.equal(sameDependencies(before, { ...before, scripts: { a: "1", b: "2" } }), true);
+test("release plan: package.json is non-served only when dependencies AND serving scripts are unchanged", () => {
+  const before = { name: "x", scripts: { build: "vite build", lint: "eslint ." }, dependencies: { react: "19" }, engines: { node: ">=22" } };
+  assert.equal(sameDependencies(before, { ...before, scripts: { ...before.scripts, "release:plan": "node r" } }), true);
   assert.equal(sameDependencies(before, { ...before, dependencies: { react: "20" } }), false);
   assert.equal(sameDependencies(before, { ...before, engines: { node: ">=24" } }), false);
-  assert.equal(classifyChanges([m("package.json")], { packageDependenciesUnchanged: true }).level, "none");
-  assert.equal(classifyChanges([m("package.json")]).level, "runtime");
-  assert.equal(classifyChanges([m("package-lock.json")], { packageDependenciesUnchanged: true }).level, "runtime", "lockfile always needs review");
+  const ok = { packageDependenciesUnchanged: true, packageScriptsServingUnchanged: true };
+  assert.equal(classifyChanges([m("package.json")], ok).level, "none");
+  assert.equal(classifyChanges([m("package.json")], { ...ok, packageScriptsServingUnchanged: false }).level, "runtime");
+  assert.equal(classifyChanges([m("package.json")], { packageDependenciesUnchanged: false, packageScriptsServingUnchanged: true }).level, "runtime");
+  assert.equal(classifyChanges([m("package.json")]).level, "runtime", "no signals: fail safe");
+  assert.equal(classifyChanges([m("package-lock.json")], ok).level, "runtime", "lockfile always needs review");
+});
+
+test("release plan: maintenance scripts are distinguished from build/start/install and lifecycle scripts", () => {
+  for (const name of ["lint", "test:unit", "ledger:check", "public:check", "release:plan", "release:verify"]) assert.ok(isMaintenanceScript(name), name);
+  for (const name of ["build", "dev", "start", "install:ci", "db:generate", "preinstall", "postinstall", "prepare", "prebuild", "postbuild", "deploy", "new-script"]) assert.ok(!isMaintenanceScript(name), name);
+  const before = { scripts: { build: "vite build", lint: "eslint ." } };
+  assert.equal(servingScriptsUnchanged(before, { scripts: { ...before.scripts, "release:plan": "x", "test:e2e": "y" } }), true, "adding maintenance scripts");
+  assert.equal(servingScriptsUnchanged(before, { scripts: { ...before.scripts, lint: "eslint . --fix" } }), true, "editing lint");
+  assert.equal(servingScriptsUnchanged(before, { scripts: { ...before.scripts, build: "vite build --mode x" } }), false, "editing build");
+  assert.equal(servingScriptsUnchanged(before, { scripts: { ...before.scripts, postinstall: "node evil.js" } }), false, "adding a lifecycle hook");
+  assert.equal(servingScriptsUnchanged(before, { scripts: { lint: "eslint ." } }), false, "removing build");
+});
+
+test("release plan: unclassified files are reviewed (runtime), known tooling is not", () => {
+  for (const path of ["wrangler.toml", "new-config.json", "src/server.ts", "examples/d1/app/api/notes/route.ts", "scripts/install-ci.sh", "scripts/build-verified.sh", "scripts/new-deploy.mjs"]) {
+    assert.equal(classifyChanges([m(path, "A")]).level, "runtime", path);
+  }
+  for (const path of ["README.md", "AGENTS.md", "docs/RELEASE.md", "tests/x.spec.ts", ".github/workflows/verify.yml", "scripts/check-ledger.mjs", "scripts/release.mjs", "eslint.config.mjs"]) {
+    assert.equal(classifyChanges([m(path)]).level, "none", path);
+  }
+  assert.equal(classifyChanges([m("drizzle.config.ts")]).level, "data");
 });

@@ -152,3 +152,9 @@
 - KIF-003: `docs/RELEASE.md`、`scripts/release.mjs`、`tests/release.spec.ts`、`package.json`の`release:*`、`docs/OPERATIONS.md`のリリース節を追加・更新。`scripts/`・`package.json`・`OPERATIONS.md`・`DECISIONS.md`・`OPEN_QUESTIONS.md`を含むため**自動マージ対象外の手動レビューPR**とする。Siteへの反映は未実施（Sites権限なし）。
 - Branches: 手動レビューPRが開いたままでも自動マージ対象の作業を進めるため、`docs/AUTOMERGE_POLICY.md`の「タスクごとに`claude/<短い説明>`」に従い、作業ごとに`claude/`ブランチを分ける。
 - Data impact: なし。D1・localStorage・Siteの公開範囲は変更していない。
+
+## 2026-11-15 — PR #9へのレビュー指摘の反映とADR-011
+
+- Actor: Claude（Claude Codeクラウド）
+- Review: ユーザーがPR #9に2点を指摘（未分類ファイルが`none`になる、`package.json`のビルド／起動／インストール系スクリプト変更を見逃す）。いずれも修正し、回帰テスト3件を追加（release関連8件、全49件PASS）。ミューテーション3種を全検出。**PR #9は手動レビュー対象のまま**で、Claudeはマージしない。
+- Decisions: ADR-011（入玉宣言の仕様、エンジン試作方針、リリース・配備先の比較、ブランチ自動削除、教材優先）を記録。Q-011をRESOLVED、Q-003を更新。

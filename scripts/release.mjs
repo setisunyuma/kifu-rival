@@ -20,32 +20,46 @@ import { pathToFileURL } from "node:url";
 
 export const MANIFEST_SCHEMA = 1;
 
+/**
+ * Files known NOT to affect what the Site builds or runs. Anything not listed here
+ * and not matched by a more specific rule is treated as `runtime` (fail safe), so a
+ * new config file or code directory is reviewed rather than silently ignored.
+ */
+const NOT_SERVED_FILES = new Set([
+  "README.md", "AGENTS.md", "CLAUDE.md", "LICENSE", ".gitignore", "eslint.config.mjs",
+  "scripts/check-ledger.mjs", "scripts/check-public-release.mjs", "scripts/guarded-auto-merge.mjs",
+  "scripts/release.mjs", "scripts/test-unit.mjs",
+]);
+const NOT_SERVED_DIRS = ["docs/", "tests/", ".github/"];
+
 /** Ordered from most to least severe. The first matching rule wins. */
 const RULES = [
-  { level: "data", reason: "D1 migration", test: p => p.startsWith("drizzle/") },
+  { level: "data", reason: "D1 migration", test: p => p.startsWith("drizzle/") || p === "drizzle.config.ts" },
   { level: "data", reason: "D1 schema / access", test: p => p.startsWith("db/") },
-  { level: "data", reason: "hosting bindings (D1/R2/project)", test: p => p === ".openai/hosting.json" },
+  { level: "data", reason: "hosting bindings (D1/R2/project)", test: p => p.startsWith(".openai/") },
   { level: "data", reason: "authentication helper", test: p => p === "app/chatgpt-auth.ts" },
   { level: "runtime", reason: "server API", test: p => p.startsWith("app/api/") },
   { level: "runtime", reason: "Worker entrypoint", test: p => p.startsWith("worker/") },
   { level: "runtime", reason: "dependencies", test: p => ["package.json", "package-lock.json", ".npmrc"].includes(p) },
-  { level: "runtime", reason: "build / framework config", test: p => ["vite.config.ts", "next.config.ts", "tsconfig.json", "cloudflare-env.d.ts", "postcss.config.mjs"].includes(p) || p.startsWith("scripts/vite/") || p.startsWith("vendor/") },
+  { level: "runtime", reason: "build / framework config", test: p => ["vite.config.ts", "next.config.ts", "tsconfig.json", "cloudflare-env.d.ts", "postcss.config.mjs", "components.json"].includes(p) || p.startsWith("scripts/vite/") || p.startsWith("vendor/") },
   { level: "app", reason: "app / UI", test: p => p.startsWith("app/") || p.startsWith("components/") || p.startsWith("hooks/") || p.startsWith("public/") },
   { level: "app", reason: "game logic / content", test: p => p.startsWith("lib/") },
-  { level: "none", reason: "docs, tests, CI, tooling (not served)", test: () => true },
+  { level: "none", reason: "docs, tests, CI, repository tooling (not served)", test: p => NOT_SERVED_FILES.has(p) || NOT_SERVED_DIRS.some(d => p.startsWith(d)) },
+  { level: "runtime", reason: "unclassified file: review whether it affects build or runtime", test: () => true },
 ];
 const LEVELS = ["none", "app", "runtime", "data"];
 
 /**
  * @param {{status: string, path: string}[]} changes  git name-status entries
- * @param {{storageKeyChanged?: boolean, packageDependenciesUnchanged?: boolean}} [signals]
+ * @param {{storageKeyChanged?: boolean, packageDependenciesUnchanged?: boolean, packageScriptsServingUnchanged?: boolean}} [signals]
  */
 export function classifyChanges(changes, signals = {}) {
   const entries = changes.map(({ status, path }) => {
     const rule = RULES.find(r => r.test(path));
     let level = rule.level, reason = rule.reason;
-    // Editing only npm scripts or metadata does not change what the Site runs.
-    if (path === "package.json" && status === "M" && signals.packageDependenciesUnchanged) { level = "none"; reason = "package.json without dependency/engine changes"; }
+    // package.json: only changes limited to repository-maintenance scripts are harmless.
+    if (path === "package.json" && status === "M" && signals.packageDependenciesUnchanged && signals.packageScriptsServingUnchanged) { level = "none"; reason = "package.json: only maintenance scripts/metadata changed"; }
+    else if (path === "package.json" && status === "M" && signals.packageDependenciesUnchanged && signals.packageScriptsServingUnchanged === false) { reason = "package.json: build/start/install or lifecycle script changed"; }
     // Deleting served files can break the running Site or a rollback.
     if (/^[DR]/.test(status) && level === "app") { level = "runtime"; reason += " (deleted/renamed)"; }
     return { status, path, level, reason };
@@ -101,9 +115,22 @@ const DEPENDENCY_FIELDS = ["dependencies", "devDependencies", "optionalDependenc
 export function sameDependencies(before, after) {
   return DEPENDENCY_FIELDS.every(field => JSON.stringify(before?.[field] ?? null) === JSON.stringify(after?.[field] ?? null));
 }
-function packageDependenciesUnchanged(base, head, root) {
-  try { return sameDependencies(JSON.parse(git(["show", `${base}:package.json`], root)), JSON.parse(git(["show", `${head}:package.json`], root))); }
-  catch { return false; }
+/**
+ * npm scripts that only maintain the repository (checks, tests, release tooling).
+ * Every other script (build, dev, start, install:ci, db:*, npm lifecycle hooks such as
+ * preinstall/postinstall/prepare, and any new name) may affect deployment.
+ */
+const MAINTENANCE_SCRIPT = /^(lint|test(:[\w-]+)?|ledger:check|public:check|release:(plan|manifest|verify))$/;
+export function isMaintenanceScript(name) { return MAINTENANCE_SCRIPT.test(name); }
+/** True when every added, removed or edited npm script is a maintenance script. */
+export function servingScriptsUnchanged(before, after) {
+  const a = before?.scripts ?? {}, b = after?.scripts ?? {};
+  const names = new Set([...Object.keys(a), ...Object.keys(b)]);
+  return [...names].every(name => a[name] === b[name] || isMaintenanceScript(name));
+}
+function readPackages(base, head, root) {
+  try { return [JSON.parse(git(["show", `${base}:package.json`], root)), JSON.parse(git(["show", `${head}:package.json`], root))]; }
+  catch { return null; }
 }
 
 function plan(args, root) {
@@ -113,7 +140,12 @@ function plan(args, root) {
     .map(line => { const [status, path] = line.split("\t"); return { status, path }; });
   const appDiff = git(["diff", "-U0", `${base}..${head}`, "--", "app/rival-app.tsx"], root);
   const storageKeyChanged = /^[-+].*STORAGE_KEY\s*=/m.test(appDiff);
-  const result = classifyChanges(changes, { storageKeyChanged, packageDependenciesUnchanged: packageDependenciesUnchanged(base, head, root) });
+  const pkgs = readPackages(base, head, root);
+  const result = classifyChanges(changes, {
+    storageKeyChanged,
+    packageDependenciesUnchanged: pkgs ? sameDependencies(pkgs[0], pkgs[1]) : false,
+    packageScriptsServingUnchanged: pkgs ? servingScriptsUnchanged(pkgs[0], pkgs[1]) : false,
+  });
   const headSha = git(["rev-parse", head], root).trim();
   console.log(`release plan ${base.slice(0, 12)}..${headSha.slice(0, 12)}: level=${result.level}`);
   for (const e of result.entries) console.log(`  [${e.level}] ${e.status} ${e.path} — ${e.reason}`);

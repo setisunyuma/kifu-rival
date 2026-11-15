@@ -11,32 +11,32 @@ import type { LucideIcon } from "lucide-react";
 import {
   DECLARATION_RULE_LABELS, DeclarationRule, Game, HandKind, HAND_ORDER, Move, PIECE_NAMES, PROMOTED_NAMES, Side,
   Square, checkDeclaration, chooseRivalMove, declarationRuleOf, declareEntering, explainDeclaration,
-  initialGame, legalMoves, playMove, shouldDeclare, usi,
+  initialGame, legalMoves, playMove, shouldDeclare, toSfen, usi,
 } from "../lib/shogi";
-import { LessonAttempt, LESSONS, PlanItem, ROADMAP, dailyPlan, skillsForMissedMates } from "../lib/lessons";
+import { LessonAttempt, LESSONS, PlanItem, ROADMAP, acceptsLessonMove, createLessonAttempt, dailyPlan, masteredSkills, skillsForMissedMates } from "../lib/lessons";
 import { RivalGameRecord, RivalMessage, rivalReply } from "../lib/rival-chat";
 import { useGameReview } from "../hooks/use-game-review";
+import { parseBackupOffThread } from "../hooks/backup-task";
+import { DataBackupPanel } from "../components/data-backup-panel";
+import type { SavedState } from "../lib/backup";
+import { assertBackupCapacity } from "../lib/backup";
+import { STORAGE_KEY, restoreSavedState } from "../lib/persistence";
 
 type View = "play" | "learn" | "rival" | "history";
 type ChatMessage = RivalMessage;
 type GameRecord = RivalGameRecord;
 type PromoteRequest = { moves: Move[]; learning: boolean };
 
-const STORAGE_KEY = "kifu-rival.v1";
 const GREETING = "棋友です。今日はどんな一局になるだろう。盤上で交わした手も、そのあとに交わす言葉も、大事にしたい。";
 const LEVELS = ["はじめて", "初級", "中級", "挑戦"];
+const STANDARD_START = toSfen(initialGame());
+const recordIdentity = (record: GameRecord) => JSON.stringify([record.startSfen ?? STANDARD_START, record.declarationRule ?? "jsa", record.result, record.moves]);
 const NAV_ITEMS: { id: View; label: string; sub: string; icon: LucideIcon }[] = [
   { id: "play", label: "対局する", sub: "ライバルと一局", icon: Swords },
   { id: "learn", label: "教材モード", sub: "一歩ずつ上達", icon: BookOpen },
   { id: "rival", label: "棋友と話す", sub: "感想戦・雑談", icon: MessageCircle },
   { id: "history", label: "成長の記録", sub: "棋譜と達成状況", icon: Trophy },
 ];
-
-function sendProgress(payload: Record<string, unknown>) {
-  void fetch("/api/progress", {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
-  }).catch(() => {});
-}
 
 function RivalFace({ large = false }: { large?: boolean }) {
   return (
@@ -131,8 +131,11 @@ export default function RivalApp() {
   // Answers to lessons, kept on this device only (KIF-032 minimal loop).
   const [attempts, setAttempts] = useState<LessonAttempt[]>([]);
   const [attemptRecorded, setAttemptRecorded] = useState(false);
+  const [seenLessons, setSeenLessons] = useState<string[]>([]);
+  const [pendingHints, setPendingHints] = useState<string[]>([]);
 
   const [lessonFeedback, setLessonFeedback] = useState("");
+  const [solvedMove, setSolvedMove] = useState("");
   const [showHint, setShowHint] = useState(false);
   const [records, setRecords] = useState<GameRecord[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([{ role: "rival", text: GREETING }]);
@@ -143,52 +146,111 @@ export default function RivalApp() {
   const [ruleSetting, setRuleSetting] = useState<DeclarationRule>("jsa");
   const [declaring, setDeclaring] = useState(false);
   const chatScroll = useRef<HTMLDivElement>(null);
+  const [storageError, setStorageError] = useState("");
+  const [cloudStatus, setCloudStatus] = useState<"checking" | "limited" | "unavailable" | "failed" | "paused">("checking");
+  const [cloudSyncPaused, setCloudSyncPaused] = useState(false);
+  const [importPreview, setImportPreview] = useState(false);
+  const saveAllowed = useRef(true);
+  const cloudPaused = useRef(false);
+  const dataRevision = useRef(0);
+  const snapshot = useMemo<SavedState>(() => ({ game, level, declarationRule: ruleSetting, completed, lessonAttempts: attempts, records, messages, cloudSyncPaused, seenLessons, pendingHints }), [game, level, ruleSetting, completed, attempts, records, messages, cloudSyncPaused, seenLessons, pendingHints]);
+  const currentSnapshot = useRef(snapshot);
+  useEffect(() => { currentSnapshot.current = snapshot; }, [snapshot]);
+
+  function applySavedState(saved: SavedState) {
+    currentSnapshot.current = saved;
+    setGame(saved.game); setLevel(saved.level); setRuleSetting(saved.declarationRule);
+    setCompleted(saved.completed); setAttempts(saved.lessonAttempts); setRecords(saved.records); setMessages(saved.messages);
+    setSeenLessons(saved.seenLessons ?? saved.lessonAttempts.map(a => a.lessonId));
+    setPendingHints(saved.pendingHints ?? []);
+    cloudPaused.current = saved.cloudSyncPaused === true;
+    setCloudSyncPaused(cloudPaused.current);
+  }
+
+  function hasRoom(candidate: SavedState): boolean {
+    try { assertBackupCapacity(candidate); return true; }
+    catch (error) {
+      setStorageError(`${error instanceof Error ? error.message : "保存できる容量の上限です。"} この操作は記録に反映していません。今の記録を書き出して保管してください。`);
+      return false;
+    }
+  }
+
+  async function loadCloudProgress(revision: number, signal?: AbortSignal) {
+    if (cloudPaused.current || !saveAllowed.current) return;
+    try {
+      const response = await fetch("/api/progress", { signal });
+      if (signal?.aborted || revision !== dataRevision.current || cloudPaused.current) return;
+      if (!response.ok) { setCloudStatus(response.status === 401 || response.status === 403 || response.status === 503 ? "unavailable" : "failed"); return; }
+      const cloud = await response.json() as { completed?: unknown; games?: unknown };
+      if ((cloud.completed !== undefined && !Array.isArray(cloud.completed)) || (cloud.games !== undefined && !Array.isArray(cloud.games))) throw new Error("Invalid cloud data");
+      const remote = ((cloud.games ?? []) as { id: number; result: GameRecord["result"]; moves: string[]; createdAt: string }[]).map(x => ({ id: `cloud-${x.id}`, result: x.result, moves: x.moves, date: x.createdAt }));
+      const existing = currentSnapshot.current;
+      const fingerprints = new Set(existing.records.map(recordIdentity));
+      const additions = remote.filter(r => !fingerprints.has(recordIdentity(r)));
+      const candidate = { ...existing, records: [...existing.records, ...additions], completed: [...new Set([...existing.completed, ...((cloud.completed ?? []) as string[])])] };
+      const { state } = await parseBackupOffThread(JSON.stringify(candidate), signal);
+      if (signal?.aborted || revision !== dataRevision.current || cloudPaused.current) return;
+      // Merge only the cloud-owned collections, preserving moves and settings changed while awaiting validation.
+      const latest = currentSnapshot.current;
+      const keys = new Set(latest.records.map(recordIdentity));
+      const mergedRecords = [...latest.records, ...state.records.filter(r => !keys.has(recordIdentity(r)))].sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
+      const mergedCompleted = [...new Set([...latest.completed, ...state.completed])];
+      const merged = { ...latest, records: mergedRecords, completed: mergedCompleted };
+      try { assertBackupCapacity(merged); }
+      catch {
+        setCloudStatus("failed");
+        setStorageError("クラウドの記録を加えると端末の保存上限を超えるため、追加を停止しました。端末の記録を書き出して保管してください。");
+        return;
+      }
+      currentSnapshot.current = merged;
+      setCompleted(mergedCompleted);
+      setRecords(mergedRecords);
+      setCloudStatus(previous => previous === "failed" ? previous : "limited");
+    } catch { if (!signal?.aborted && revision === dataRevision.current && !cloudPaused.current) setCloudStatus("failed"); }
+  }
+
+  function sendProgress(payload: Record<string, unknown>) {
+    if (cloudPaused.current || !saveAllowed.current) return;
+    const revision = dataRevision.current;
+    void fetch("/api/progress", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
+      .then(response => {
+        if (revision !== dataRevision.current || cloudPaused.current) return;
+        if (!response.ok) setCloudStatus(response.status === 401 || response.status === 403 || response.status === 503 ? "unavailable" : "failed");
+        else setCloudStatus(previous => previous === "failed" ? previous : "limited");
+      }).catch(() => { if (revision === dataRevision.current && !cloudPaused.current) setCloudStatus("failed"); });
+  }
 
   useEffect(() => {
     let active = true;
-    queueMicrotask(() => {
-      if (!active) return;
+    const controller = new AbortController();
+    void (async () => {
       try {
         const raw = window.localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          const saved = JSON.parse(raw) as Record<string, unknown>;
-          if (saved.game && typeof saved.game === "object") setGame(saved.game as Game);
-          if (typeof saved.level === "number" && saved.level >= 1 && saved.level <= 4) setLevel(saved.level);
-          if (saved.declarationRule === "jsa" || saved.declarationRule === "amateur27") setRuleSetting(saved.declarationRule);
-          if (Array.isArray(saved.completed)) setCompleted(saved.completed.filter(x => typeof x === "string"));
-          if (Array.isArray(saved.lessonAttempts)) setAttempts((saved.lessonAttempts as LessonAttempt[]).filter(a => a && typeof a.lessonId === "string" && typeof a.correct === "boolean" && typeof a.at === "string").slice(-500));
-          if (Array.isArray(saved.records)) setRecords(saved.records as GameRecord[]);
-          if (Array.isArray(saved.messages) && saved.messages.length) {
-            const savedMessages = saved.messages as ChatMessage[];
-            setMessages(savedMessages.map((message, index) =>
-              index === 0 && message.role === "rival" && message.text.startsWith("おかえり！ 僕は棋友")
-                ? { ...message, text: GREETING } : message));
-          }
+        if (raw !== null) {
+          const { state } = await parseBackupOffThread(raw, controller.signal);
+          if (!active) return;
+          applySavedState(state);
         }
-      } catch { /* If local storage is unavailable, the game still works in memory. */ }
+      } catch (error) {
+        if (!active) return;
+        saveAllowed.current = false;
+        setStorageError(`保存記録を読み込めなかったため、自動保存を停止しています。成長の記録から元の保存内容を退避できます。${error instanceof Error ? ` ${error.message}` : ""}`);
+      }
+      if (!active) return;
       setHydrated(true);
-    });
-    void fetch("/api/progress").then(async response => {
-      if (!response.ok) return;
-      const cloud = await response.json() as { completed?: string[]; games?: { id: number; result: string; moves: string[]; createdAt: string }[]; messages?: { role: string; text: string }[] };
-      if (cloud.completed?.length) setCompleted(prev => [...new Set([...prev, ...cloud.completed!])]);
-      if (cloud.games?.length) setRecords(prev => {
-        const cloudRecords = cloud.games!.filter(x => ["black", "white", "draw"].includes(x.result)).map(x => ({
-          id: `cloud-${x.id}`, date: x.createdAt, result: x.result as GameRecord["result"], moves: x.moves,
-        }));
-        const existing = new Set(prev.map(x => `${x.result}:${x.moves.join(",")}`));
-        return [...prev, ...cloudRecords.filter(x => !existing.has(`${x.result}:${x.moves.join(",")}`))]
-          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 100);
-      });
-    }).catch(() => {});
-    return () => { active = false; };
+      if (cloudPaused.current) setCloudStatus("paused");
+      else if (saveAllowed.current) void loadCloudProgress(dataRevision.current, controller.signal);
+      else setCloudStatus("unavailable");
+    })();
+    return () => { active = false; controller.abort(); };
+    // Boot owns the initial hydration; later snapshots are saved by the effect below.
   }, []);
 
   useEffect(() => {
-    if (!hydrated) return;
-    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ game, level, declarationRule: ruleSetting, completed, lessonAttempts: attempts.slice(-500), records, messages: messages.slice(-80) })); }
-    catch { /* Storage can be blocked by private browsing. */ }
-  }, [hydrated, game, level, ruleSetting, completed, attempts, records, messages]);
+    if (!hydrated || !saveAllowed.current) return;
+    try { assertBackupCapacity(snapshot); window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot)); queueMicrotask(() => setStorageError("")); }
+    catch (error) { queueMicrotask(() => setStorageError(`端末への保存に失敗しました。画面の記録は保持しています。成長の記録からファイルへ書き出してください。${error instanceof Error ? ` ${error.message}` : ""}`)); }
+  }, [hydrated, snapshot]);
 
   // Scroll only within the chat panel. scrollIntoView used to drag the whole
   // iPhone page down to the chat, hiding the board immediately after opening.
@@ -208,18 +270,27 @@ export default function RivalApp() {
   const lesson = LESSONS[lessonIndex];
   // Computed only after hydration so the server render and the first client render agree.
   // Review of the last 3 games in a Web Worker (KIF-032): never blocks the screen.
-  const recentGames = useMemo(() => (hydrated ? records.slice(0, 3).map(r => ({ id: r.id, date: r.date, moves: r.moves })) : []), [hydrated, records]);
+  const recentGames = useMemo(() => (hydrated ? records.slice(0, 3).map(r => ({ id: r.id, date: r.date, moves: r.moves, startSfen: r.startSfen, declarationRule: r.declarationRule })) : []), [hydrated, records]);
   const gameReview = useGameReview(recentGames);
   const reviewed = gameReview.results;
   const gameSkills = useMemo(() => skillsForMissedMates(reviewed.flatMap(r => r.review.missed)), [reviewed]);
   const todayPlan: PlanItem[] = useMemo(() => (hydrated ? dailyPlan(attempts, new Date(), LESSONS, gameSkills) : []), [hydrated, attempts, gameSkills]);
+  const confirmedSkills = useMemo(() => masteredSkills(attempts), [attempts]);
   const stats = { won: records.filter(x => x.result === "black").length, lost: records.filter(x => x.result === "white").length };
 
-  function saveMatch(result: GameRecord["result"], moveList: Move[]) {
-    const notation = moveList.map(usi);
-    const record = { id: `${Date.now()}-${Math.random()}`, date: new Date().toISOString(), result, moves: notation };
-    setRecords(prev => [record, ...prev].slice(0, 100));
-    sendProgress({ type: "game", result, moves: notation });
+  function saveMatch(result: GameRecord["result"], position: Game) {
+    const notation = position.history.map(usi);
+    const completeLog = position.positionLog?.length === position.history.length + 1;
+    const start = completeLog ? position.positionLog![0].key : undefined;
+    const startSfen = start && start !== STANDARD_START ? start : undefined;
+    const record: GameRecord = { id: `${Date.now()}-${Math.random()}`, date: new Date().toISOString(), result, moves: notation, declarationRule: declarationRuleOf(position), ...(startSfen ? { startSfen } : {}) };
+    const latest = currentSnapshot.current;
+    const nextRecords = [record, ...latest.records];
+    if (!hasRoom({ ...latest, game: { ...position, result }, records: nextRecords })) return false;
+    setRecords(nextRecords);
+    // The existing cloud schema describes games from the standard starting position.
+    if (!startSfen) sendProgress({ type: "game", result, moves: notation });
+    return true;
   }
 
   function commitMove(position: Game, move: Move) {
@@ -227,14 +298,16 @@ export default function RivalApp() {
   }
 
   function finishOrContinue(next: Game) {
+    if (next.result === "playing") { if (!hasRoom({ ...currentSnapshot.current, game: next })) return false; }
+    else if (!saveMatch(next.result, next)) return false;
     setGame(next);
     setSelected(null);
     setSelectedDrop(null);
     setDeclaring(false);
     if (next.result !== "playing") {
-      saveMatch(next.result, next.history);
       setToast(next.result === "black" ? "あなたの勝ちです。" : next.result === "draw" ? "引き分けになりました。" : "対局が終わりました。");
     }
+    return true;
   }
 
   function confirmDeclaration() {
@@ -242,9 +315,9 @@ export default function RivalApp() {
     finishOrContinue(declareEntering(game, "match").game);
   }
 
-  const thinking = hydrated && game.turn === "white" && game.result === "playing";
+  const thinking = hydrated && !importPreview && game.turn === "white" && game.result === "playing";
   useEffect(() => {
-    if (!hydrated || game.turn !== "white" || game.result !== "playing") return;
+    if (!hydrated || importPreview || game.turn !== "white" || game.result !== "playing") return;
     const timer = window.setTimeout(() => {
       if (shouldDeclare(game)) { finishOrContinue(declareEntering(game, "match").game); return; }
       const move = chooseRivalMove(game, level);
@@ -253,7 +326,7 @@ export default function RivalApp() {
     return () => window.clearTimeout(timer);
     // commitMove operates on the immutable game snapshot supplied to this effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game, level, hydrated]);
+  }, [game, level, hydrated, importPreview]);
 
   function completeLesson() {
     if (completed.includes(lesson.id)) return;
@@ -265,15 +338,25 @@ export default function RivalApp() {
     setPromotion(null);
     if (!learning) { commitMove(game, move); return; }
     setPracticeSelected(null); setPracticeDrop(null);
-    const correct = usi(move) === lesson.answer;
+    const correct = acceptsLessonMove(lesson, usi(move));
+    const nextAttempts = attemptRecorded ? attempts : [...attempts, createLessonAttempt(lesson.id, correct, new Date().toISOString(), attempts, pendingHints.includes(lesson.id), seenLessons)];
+    const nextSeen = attemptRecorded ? seenLessons : [...new Set([...seenLessons, lesson.id])];
+    const nextHints = attemptRecorded ? pendingHints : pendingHints.filter(id => id !== lesson.id);
+    if (!hasRoom({ ...snapshot, lessonAttempts: nextAttempts, seenLessons: nextSeen, pendingHints: nextHints, completed: correct ? [...new Set([...completed, lesson.id])] : completed })) return;
     // Record only the first answer per visit, so trying several moves is not counted as several mistakes.
-    if (!attemptRecorded) { setAttempts(prev => [...prev, { lessonId: lesson.id, correct, at: new Date().toISOString() }].slice(-500)); setAttemptRecorded(true); }
+    if (!attemptRecorded) {
+      setAttempts(nextAttempts);
+      setSeenLessons(nextSeen);
+      setPendingHints(nextHints);
+      setAttemptRecorded(true);
+    }
     if (!correct) {
       setLessonFeedback("その手も考えられるね。今回は、お題の手を探してみよう。");
       return;
     }
     setPractice(playMove(practice, move));
-    setLessonFeedback("正解です。手の意味を確かめて、次の一手へ。");
+    setSolvedMove(usi(move));
+    setLessonFeedback(lesson.variations?.length ? "正解です。詰みへつながる初手を選べました。手順と狙いも確かめよう。" : "正解です。手の意味を確かめて、次の一手へ。");
     completeLesson();
   }
 
@@ -308,14 +391,34 @@ export default function RivalApp() {
 
   function resign() {
     if (game.result !== "playing" || game.history.length === 0) { newGame(); return; }
-    saveMatch("white", game.history);
-    setGame(prev => ({ ...prev, result: "white" }));
-    setToast("投了を記録しました。");
+    if (finishOrContinue({ ...game, result: "white" })) setToast("投了を記録しました。");
   }
 
   function chooseLesson(index: number) {
     setLessonIndex(index); setPractice(LESSONS[index].setup()); setPracticeSelected(null); setPracticeDrop(null); setAttemptRecorded(false);
-    setLessonFeedback(""); setShowHint(false); setPromotion(null);
+    setLessonFeedback(""); setSolvedMove(""); setShowHint(false); setPromotion(null);
+  }
+
+  function restoreSnapshot(incoming: SavedState) {
+    let restored: SavedState;
+    const normalized = { ...incoming, cloudSyncPaused: true, seenLessons: incoming.seenLessons ?? [...new Set(incoming.lessonAttempts.map(a => a.lessonId))], pendingHints: incoming.pendingHints ?? [] };
+    assertBackupCapacity(normalized);
+    try { restored = restoreSavedState(window.localStorage, normalized, snapshot); }
+    catch { throw new Error("端末に復元できませんでした。保存容量やブラウザの設定を確認してください。元の保存記録は変更していません。"); }
+    dataRevision.current += 1;
+    saveAllowed.current = true;
+    applySavedState(restored);
+    setCloudStatus("paused"); setStorageError("");
+    setSelected(null); setSelectedDrop(null); setDeclaring(false); setDraft("");
+    chooseLesson(lessonIndex);
+    setToast("記録を復元しました。");
+  }
+
+  function resumeCloudSync() {
+    if (!window.confirm("クラウド同期を再開します。クラウドの対局と達成記録を、この端末の記録に追加します。よろしいですか？")) return;
+    cloudPaused.current = false; setCloudSyncPaused(false); setCloudStatus("checking");
+    const revision = ++dataRevision.current;
+    void loadCloudProgress(revision);
   }
 
   function sendChat(event: FormEvent<HTMLFormElement>) {
@@ -323,7 +426,9 @@ export default function RivalApp() {
     const text = draft.trim().slice(0, 500);
     if (!text) return;
     const reply = rivalReply(text, { game, records, completedLessons: completed.length, recentMessages: messages });
-    setMessages(prev => [...prev, { role: "me" as const, text }, { role: "rival" as const, text: reply }].slice(-80));
+    const nextMessages = [...messages, { role: "me" as const, text }, { role: "rival" as const, text: reply }];
+    if (!hasRoom({ ...snapshot, messages: nextMessages })) return;
+    setMessages(nextMessages);
     setDraft("");
     sendProgress({ type: "chat", userText: text, replyText: reply });
   }
@@ -337,7 +442,7 @@ export default function RivalApp() {
           <span className="chat-bubble-icon"><MessageCircle size={16} /></span>
         </div>
         <div className="chat-messages" ref={chatScroll}>
-          {messages.map((m, i) => (
+          {messages.slice(-80).map((m, i) => (
             <div key={i} className={`chat-line ${m.role === "me" ? "chat-line-me" : ""}`}>
               {m.role === "rival" && <RivalFace />}
               <p className={`chat-text ${m.role === "me" ? "chat-text-me" : ""}`}>{m.text}</p>
@@ -366,7 +471,7 @@ export default function RivalApp() {
         </nav>
         <div className="sidebar-bottom">
           <div className="sidebar-rival"><RivalFace /><div><strong>次の一手を、共に。</strong><span>盤上で待っています。</span></div></div>
-          <div className="sidebar-foot"><span className="sync-indicator" /> 自動保存 ON <span>·</span> EARLY ACCESS</div>
+          <div className="sidebar-foot"><span className="sync-indicator" /> {storageError ? "保存を確認してください" : "端末に自動保存"} <span>·</span> EARLY ACCESS</div>
         </div>
       </aside>
 
@@ -376,7 +481,9 @@ export default function RivalApp() {
           <div className="topbar-actions"><span className="alpha-pill">PRIVATE PREVIEW · α</span><div className="topbar-user">私</div></div>
         </header>
 
-        <div className="content-wrap">
+        {!hydrated && <p className="loading-records" role="status">端末の記録を確認しています…</p>}
+        {storageError && <div className="storage-warning" role="alert"><CircleHelp size={18} /><p>{storageError}</p><button type="button" className="text-button" onClick={() => setView("history")}>記録の退避へ</button></div>}
+        <div className="content-wrap" inert={!hydrated} aria-busy={!hydrated}>
           {view === "play" && <>
             <div className="page-header"><div><p className="eyebrow"><span>―</span> TODAY&apos;S MATCH</p><h1>一手ずつ、深く。</h1><p>静かに考え、指し、振り返る。棋譜に残る一局を。</p></div><div className="header-stats"><span><Swords size={15} /> 通算 {records.length} 局</span><span><Trophy size={15} /> {stats.won} 勝</span></div></div>
             <div className="play-layout">
@@ -405,15 +512,16 @@ export default function RivalApp() {
           {view === "learn" && <>
             <div className="page-header"><div><p className="eyebrow"><span>―</span> STUDY / 学び</p><h1>将棋を、深く知る。</h1><p>駒の動きから戦型の構想へ。初めの一手を丁寧に。</p></div><div className="header-stats"><span><Check size={15} /> {completed.length} / {LESSONS.length} 修了</span></div></div>
             <div className="learning-progress"><div><span>YOUR PROGRESS</span><strong>基礎コース</strong></div><div className="progress-track"><span style={{ width: `${(completed.length / LESSONS.length) * 100}%` }} /></div><strong>{Math.round(completed.length / LESSONS.length * 100)}%</strong></div>
-            {todayPlan.length > 0 && <section className="panel daily-plan"><div className="daily-plan-head"><strong>今日の課題</strong><small>復習・苦手・新しいレッスンから最大3問。記録はこの端末にだけ保存されます。</small></div><div className="daily-plan-list">{todayPlan.map(item => { const index = LESSONS.findIndex(l => l.id === item.lessonId); const l = LESSONS[index]; return <button key={item.lessonId} type="button" onClick={() => chooseLesson(index)} className={`daily-plan-item plan-${item.reason}`}><span>{item.reason === "review" ? "復習" : item.reason === "weak" ? "苦手" : item.reason === "game" ? "実戦" : "新しい"}</span><strong>{l.title}</strong><ChevronRight size={15} /></button>; })}</div><p className="daily-plan-note">復習は同じ問題の解き直しです（仮の仕組み）。初見の練習問題は準備中です。</p></section>}
+            {todayPlan.length > 0 && <section className="panel daily-plan"><div className="daily-plan-head"><strong>今日の課題</strong><small>復習・苦手・実戦・新しいレッスンから最大3問。回答はこの端末に保存されます。</small></div><div className="daily-plan-list">{todayPlan.map(item => { const index = LESSONS.findIndex(l => l.id === item.lessonId); const l = LESSONS[index]; return <button key={item.lessonId} type="button" onClick={() => chooseLesson(index)} className={`daily-plan-item plan-${item.reason}`}><span>{item.reason === "review" ? "復習" : item.reason === "weak" ? "苦手" : item.reason === "game" ? "実戦" : "新しい"}</span><strong>{l.title}</strong><ChevronRight size={15} /></button>; })}</div><p className="daily-plan-note">同じ問題で復習し、局面を変えた応用問題で力を確かめます。日を空けた初見・ヒントなしの回答を、習熟の確認に使います（基準は試行中）。{confirmedSkills.size > 0 && ` 確認できた技能：${confirmedSkills.size}件。`}</p></section>}
             <div className="learn-layout"><section className="panel lesson-list-panel"><div className="list-heading"><h2>学びの道のり</h2><p>レッスンを選んで始めよう</p></div><div className="lesson-list">
               {LESSONS.map((item, index) => <button key={item.id} onClick={() => chooseLesson(index)} className={`lesson-item ${lessonIndex === index ? "lesson-selected" : ""}`}><span className={`lesson-index ${completed.includes(item.id) ? "lesson-done" : ""}`}>{completed.includes(item.id) ? <Check size={15} /> : `${index + 1}`}</span><span className="lesson-info"><small>STAGE {item.stage} · {item.category}</small><strong>{item.title}</strong><span>{item.summary}</span></span><ChevronRight size={16} /></button>)}
             </div><div className="roadmap-heading"><Layers3 size={17} /> この先の学び <span>COMING SOON</span></div><div className="roadmap-list">{ROADMAP.map(item => <div className="roadmap-item" key={item.stage}><span>{item.stage}</span><div><strong>{item.title}</strong><small>{item.summary}</small></div><span className="roadmap-lock">準備中</span></div>)}</div></section>
-              <section className="panel lesson-stage"><div className="lesson-head"><span className="lesson-step">LESSON {String(lessonIndex + 1).padStart(2, "0")} / {String(LESSONS.length).padStart(2, "0")}</span><span className="lesson-category">{lesson.category}</span></div><h2>{lesson.title}</h2><p className="lesson-explanation">{lesson.explanation}</p><div className="lesson-goal"><Target size={19} /><div><small>今回のチャレンジ</small><strong>{lesson.goal}</strong></div></div>
+              <section className="panel lesson-stage"><div className="lesson-head"><span className="lesson-step">LESSON {String(lessonIndex + 1).padStart(2, "0")} / {String(LESSONS.length).padStart(2, "0")}</span><span className="lesson-category">{lesson.category}{lesson.transfer ? " · 応用" : ""}</span></div><h2>{lesson.title}</h2><p className="lesson-explanation">{lesson.explanation}</p><div className="lesson-goal"><Target size={19} /><div><small>今回のチャレンジ</small><strong>{lesson.goal}</strong></div></div>
               <div className="lesson-board"><ShogiBoard game={practice} selected={practiceSelected} selectedDrop={practiceDrop} legal={practiceMoves} onSquare={(r, c) => handleSquare(r, c, true)} onHand={kind => handleHand(kind, true)} disabled={lessonFeedback.startsWith("正解です")} /></div>
               {lessonFeedback && <div role="status" className={`practice-feedback ${lessonFeedback.startsWith("正解です") ? "feedback-success" : ""}`}>{lessonFeedback.startsWith("正解です") ? <Check size={17} /> : <CircleHelp size={17} />}{lessonFeedback}</div>}
+              {solvedMove && lesson.variations && <div className="lesson-solution"><h3>詰みまでの手順</h3>{lesson.variations.filter(v => v.moves[0] === solvedMove).map(v => <p key={v.moves.join(" ")}>{v.explanation}</p>)}<small>今回は初手の選択を記録しました。相手の応手と最後の手も、盤面を思い浮かべて確かめよう。</small></div>}
               {showHint && <div className="hint-box"><Sparkles size={18} /> {lesson.hint}</div>}
-              <div className="lesson-actions"><button className="secondary-button" onClick={() => setShowHint(v => !v)}><CircleHelp size={16} /> {showHint ? "ヒントを隠す" : "ヒントを見る"}</button><button className="text-button" onClick={() => chooseLesson(lessonIndex)}><RotateCcw size={15} /> やり直す</button>{lessonFeedback.startsWith("正解です") && <button className="primary-button" onClick={() => chooseLesson(Math.min(lessonIndex + 1, LESSONS.length - 1))}>{lessonIndex === LESSONS.length - 1 ? "もう一度" : "次のレッスン"} <ArrowRight size={16} /></button>}</div>
+              <div className="lesson-actions"><button className="secondary-button" onClick={() => { if (!showHint && !attemptRecorded) { const hints = [...new Set([...pendingHints, lesson.id])]; if (!hasRoom({ ...snapshot, pendingHints: hints })) return; setPendingHints(hints); } setShowHint(v => !v); }}><CircleHelp size={16} /> {showHint ? "ヒントを隠す" : "ヒントを見る"}</button><button className="text-button" onClick={() => chooseLesson(lessonIndex)}><RotateCcw size={15} /> やり直す</button>{lessonFeedback.startsWith("正解です") && <button className="primary-button" onClick={() => chooseLesson(Math.min(lessonIndex + 1, LESSONS.length - 1))}>{lessonIndex === LESSONS.length - 1 ? "もう一度" : "次のレッスン"} <ArrowRight size={16} /></button>}</div>
               </section></div>
           </>}
 
@@ -425,6 +533,8 @@ export default function RivalApp() {
           {view === "history" && <>
             <div className="page-header"><div><p className="eyebrow"><span>―</span> ARCHIVE / 棋譜</p><h1>指した一手が、残っていく。</h1><p>自分の将棋を、いつでも振り返れるように。</p></div></div>
             <div className="history-cards"><div className="panel history-stat"><span><Swords size={19} /></span><strong>{records.length}</strong><small>対局数</small></div><div className="panel history-stat"><span><Trophy size={19} /></span><strong>{stats.won}</strong><small>勝利数</small></div><div className="panel history-stat"><span><BookOpen size={19} /></span><strong>{completed.length}</strong><small>修了レッスン</small></div><div className="panel history-stat"><span><Zap size={19} /></span><strong>{records.length ? Math.round(stats.won / records.length * 100) : 0}%</strong><small>勝率</small></div></div>
+            <div className="save-status" role="status"><span>{storageError ? "端末：保存を確認してください" : "端末：保存済み"}</span><span>{cloudStatus === "paused" ? "クラウド：復元後の同期を停止中" : cloudStatus === "checking" ? "クラウド：接続を確認中" : cloudStatus === "limited" ? "クラウド：対局・達成・会話の一部を同期" : cloudStatus === "failed" ? "クラウド：同期に失敗（端末の記録は保持）" : "クラウド：この環境では同期できません"}</span>{cloudStatus === "paused" && <button type="button" className="text-button" onClick={resumeCloudSync}>同期を再開</button>}</div>
+            <DataBackupPanel snapshot={snapshot} onRestore={restoreSnapshot} onPreviewChange={setImportPreview} />
             {recentGames.length > 0 && (() => {
               const items = reviewed.flatMap(r => r.review.missed.map(m => ({ r, m })));
               const incomplete = reviewed.filter(r => !r.review.complete);

@@ -142,3 +142,10 @@
 - Work: リポジトリ外の一時ディレクトリでYaneuraOu（駒得版）とFairy-Stockfishをビルドし、将棋NNUEを取得（SHA-256先頭がファイル名と一致）。66局の対局、ネイティブとブラウザWASM（Chromium）の速度・メモリを計測。第三者のコード・バイナリ・評価関数はコミットしていない。
 - Results: 現行Lv.4は0勝18敗。強さの順はFairy NNUE ＞ YaneuraOu駒得版 ＞ Fairy手作り評価 ≫ Lv.4。不正手0件。詳細は`docs/ENGINE_INTEGRATION_PLAN.md`。
 - Not done: iPhone実測、YaneuraOuのWASM化、採用判断（Q-003、ユーザー判断）。
+
+## 2026-11-15 — 入玉宣言を対局画面とAIへ接続（ADR-011）
+
+- Actor: Claude（Claude Codeクラウド）
+- Base commit: `53557f6`
+- Changes: 規則を対局開始時に`Game.declarationRule`へ確定、宣言・説明・AI判断の関数、宣言ボタンと確認パネル、次の対局の規則設定（localStorageの任意キー`declarationRule`、旧データはそのまま読める）。D1・APIは未変更（対局結果は既存の`black/white/draw`で保存）。
+- Validation: `test:unit` 45/45 PASS。Chromium 375×812で、敵陣入玉の保存局面から宣言の確認→引き分け終局→記録保存を確認。iPhone実機は未確認。

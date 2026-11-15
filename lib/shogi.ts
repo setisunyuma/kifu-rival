@@ -546,31 +546,66 @@ export type MissedMate = {
   solutions: string[];
   /** Japanese notation of the solutions in that position, e.g. "▲１二香打". */
   solutionNames: string[];
+  /**
+   * - "shorter-mate-available": the move played still forces mate within `horizon` plies; a
+   *   learning opportunity (there was a quicker mate), NOT evidence of a weakness.
+   * - "mate-not-continued": no forced mate within `horizon` plies after the move played. A
+   *   longer mate or a safe win may still exist; this search does not judge those.
+   */
+  kind: "shorter-mate-available" | "mate-not-continued";
+  /** Plies searched to check the move played (shortest mate + 2). */
+  horizon: number;
+};
+
+export type GameReview = {
+  missed: MissedMate[];
+  totalPlies: number;
+  /** Number of moves fully reviewed from the start. Moves after this are NOT reviewed. */
+  analyzedPlies: number;
+  complete: boolean;
+  /** Why the review stopped early. Never treat an unreviewed part as "no missed mates". */
+  stopReason?: "illegal-move" | "time-limit" | "cancelled";
 };
 
 /**
  * Replay a recorded game (USI moves) and list positions where `side` had a forced mate
- * within 1 or 3 plies (every attacking move a check) but played something else.
- * Stops quietly at the first illegal or unknown move (corrupt or foreign record).
- * Cost: about 2 ms per position for mate-in-1 and 20 ms on average for mate-in-3.
+ * within 1 or 3 plies (every attacking move a check) but played something else. The move
+ * played is then checked with a deeper search (shortest + 2 plies) to tell a different
+ * correct mate from a lost chance. Search cost: about 2 ms per position for mate-in-1 and
+ * 20 ms on average for mate-in-3; run it off the main thread (hooks/game-review.worker.ts).
  */
-export function findMissedMates(moves: string[], side: Side = "black", maxPlies: 1 | 3 = 3, start: Game = initialGame()): MissedMate[] {
-  const out: MissedMate[] = [];
+export function reviewGame(moves: string[], side: Side = "black", maxPlies: 1 | 3 = 3, start: Game = initialGame(),
+  options: { deadline?: number; shouldStop?: () => boolean } = {}): GameReview {
+  const missed: MissedMate[] = [];
   let game = start;
-  for (let ply = 0; ply < moves.length && game.result === "playing"; ply++) {
+  let ply = 0;
+  const stop = (reason: GameReview["stopReason"]): GameReview => ({ missed, totalPlies: moves.length, analyzedPlies: ply, complete: false, stopReason: reason });
+  for (; ply < moves.length && game.result === "playing"; ply++) {
+    if (options.shouldStop?.()) return stop("cancelled");
+    if (options.deadline !== undefined && Date.now() > options.deadline) return stop("time-limit");
     const legal = legalMoves(game);
     const move = legal.find(m => usi(m) === moves[ply]);
-    if (!move) break;
+    if (!move) return stop("illegal-move");
     if (game.turn === side) {
-      const in1 = mateMoves(game, 1);
       const names = (list: string[]) => list.map(u => moveName(game, legal.find(m => usi(m) === u)!));
-      if (in1.length) { if (!in1.includes(moves[ply])) out.push({ ply, plies: 1, played: moves[ply], solutions: in1, solutionNames: names(in1) }); }
+      const record = (plies: 1 | 3, solutions: string[]) => {
+        const horizon = plies + 2;
+        const kind = mateMoves(game, horizon).includes(moves[ply]) ? "shorter-mate-available" : "mate-not-continued";
+        missed.push({ ply, plies, played: moves[ply], solutions, solutionNames: names(solutions), kind, horizon });
+      };
+      const in1 = mateMoves(game, 1);
+      if (in1.length) { if (!in1.includes(moves[ply])) record(1, in1); }
       else if (maxPlies >= 3) {
         const in3 = mateMoves(game, 3);
-        if (in3.length && !in3.includes(moves[ply])) out.push({ ply, plies: 3, played: moves[ply], solutions: in3, solutionNames: names(in3) });
+        if (in3.length && !in3.includes(moves[ply])) record(3, in3);
       }
     }
     game = playMove(game, move);
   }
-  return out;
+  return { missed, totalPlies: moves.length, analyzedPlies: ply, complete: true };
+}
+
+/** Missed mates only (see reviewGame for the completeness information). */
+export function findMissedMates(moves: string[], side: Side = "black", maxPlies: 1 | 3 = 3, start: Game = initialGame()): MissedMate[] {
+  return reviewGame(moves, side, maxPlies, start).missed;
 }

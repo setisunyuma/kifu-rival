@@ -51,7 +51,7 @@ async function probe(movetimeMs: number): Promise<EngineAnalysis> {
     const analysis = await active.analyze(initialGame(), { movetimeMs, multiPv: 3, signal: controller.signal });
     status.textContent = `解析完了（${Math.round(analysis.elapsedMs)} ms）`;
     show({ ...analysis, policy: ["strong", "balanced", "practice"].map(strength => choosePolicyMove(initialGame(), analysis,
-      { strength: strength as "strong" | "balanced" | "practice", style: "balanced", seed: 20261116 })) });
+      { strength: strength as "strong" | "balanced" | "practice", style: "balanced" })) });
     return analysis;
   } catch (error) {
     if (active && engine === active && error instanceof EngineError &&

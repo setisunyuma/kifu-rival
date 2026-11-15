@@ -61,7 +61,7 @@ try {
         result.positions.push({ opening, time, elapsedMs: analysis.elapsedMs, bestmove: analysis.bestmove,
           candidates: analysis.candidates.map(({ move, score, depth, nodes, engineMs }) => ({ move, score, depth, nodes, engineMs })) });
         if (time === 500) for (const style of ["balanced", "active", "solid"]) {
-          const choice = choosePolicyMove(game, analysis, { strength: "practice", style, seed: 20261116 });
+          const choice = choosePolicyMove(game, analysis, { strength: "practice", style });
           result.policyExamples.push({ opening, style, move: choice?.notation, lossCp: choice?.lossCp, reason: choice?.reason });
         }
       }
@@ -88,7 +88,7 @@ try {
           wasmLatency.push(analysis.elapsedMs); depths.push(analysis.candidates[0]?.depth ?? 0);
           if (analysis.bestmove === "resign") { outcome = wasmSide === "black" ? "white" : "black"; reason = "engine-resigned"; break; }
           if (analysis.bestmove === "win") { outcome = wasmSide; reason = "validated-declaration"; break; }
-          notation = choosePolicyMove(game, analysis, { strength: "strong", style: "balanced", seed: 20261116 })?.notation;
+          notation = choosePolicyMove(game, analysis, { strength: "strong", style: "balanced" })?.notation;
         } else {
           const t = performance.now(), move = seededLv4(game, 20261116 + i * 1000 + moves.length);
           lv4Latency.push(performance.now() - t);

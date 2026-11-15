@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""KIF-031/032/050 acceptance against the prebuilt local app, using synthetic data.
+"""KIF-031/032/050 acceptance (6 paths incl. game -> lesson) against the prebuilt local app, using synthetic data.
 
 Run after `npm run build`: python tests/browser/backup_learning.py
 Fixture-only validation (no server/browser): add --fixtures-only.
@@ -377,6 +377,55 @@ def replace_displayed_review(browser: Browser, fixtures: JSON_DATA) -> None:
         screenshot(page, "05-mobile-new-review-only")
 
 
+def game_to_lesson(browser: Browser, fixtures: JSON_DATA) -> None:
+    """KIF-032 P3: record -> replay -> missed position -> lesson -> transfer -> saved attempts."""
+    with mobile_page(browser, json.dumps(fixtures["reviewOld"]), "06-game-to-lesson") as (page, _requests):
+        navigate(page, "成長の記録")
+        page.locator(".record-list .record-line").first.get_by_role("button", name="振り返る").click()
+        study = page.get_by_role("region", name="対局の振り返り", exact=True)
+        chip = study.locator(".study-chip").filter(has_text="1手詰を逃した")
+        expect(chip).to_have_count(1, timeout=30_000)
+        chip.click()
+        expect(study.locator(".study-card")).to_contain_text("1手で詰む手がありました")
+        expect(study.locator(".replay-label")).to_contain_text("開始局面")
+        board = study.locator(".study-board")
+        # A wrong first move on the replay board is explained, not counted as a lesson attempt.
+        board.get_by_role("gridcell", name="9九 先手玉", exact=True).click()
+        board.get_by_role("gridcell", name="8九 空きマス", exact=True).click()
+        expect(study.locator(".practice-feedback")).to_contain_text("1手以内に詰みません")
+        board.locator(".hand-area:not(.hand-opponent)").get_by_role("button", name="金 1枚", exact=True).click()
+        board.get_by_role("gridcell", name="1二 空きマス", exact=True).click()
+        expect(study.locator(".practice-feedback")).to_contain_text("正解です。")
+        expect(study).to_contain_text("詰ませる初手：")
+        screenshot(page, "06-mobile-replay-found-mate")
+        assert state(page)["lessonAttempts"] == []
+        study.get_by_role("button", name="教材で練習する").click()
+        banner = page.get_by_role("region", name="実戦からの学習", exact=True)
+        expect(banner).to_contain_text("1手で詰む局面を見逃しました")
+        stage = page.locator(".lesson-stage")
+        expect(stage.locator("h2")).to_have_text("はじめての一手詰")
+        stage.locator(".hand-area:not(.hand-opponent)").get_by_role("button", name="飛 1枚", exact=True).click()
+        stage.get_by_role("gridcell", name="5二 空きマス", exact=True).click()
+        expect(stage.locator(".practice-feedback")).to_contain_text("正解です")
+        # The next step is offered next to the solved board, without scrolling back to the banner.
+        stage.get_by_role("button", name="実戦の復習②：応用問題へ").click()
+        expect(stage.locator("h2")).to_have_text("別の筋でも、守りを使う")
+        stage.locator(".hand-area:not(.hand-opponent)").get_by_role("button", name="飛 1枚", exact=True).click()
+        stage.get_by_role("gridcell", name="3二 空きマス", exact=True).click()
+        expect(banner).to_contain_text("初めて見る局面を、ヒントなし・1回目で解けました")
+        screenshot(page, "06-mobile-transfer-confirmed")
+        wait_state(page, "saved.lessonAttempts.length === 2")
+        attempts = state(page)["lessonAttempts"]
+        assert [(a["lessonId"], a["correct"], a["hinted"], a["firstSeen"]) for a in attempts] == [
+            ("rook-mate", True, False, True), ("rook-mate-transfer-center", True, False, True),
+        ]
+        stage.get_by_role("button", name="対局の振り返りに戻る").click()
+        expect(page.get_by_role("region", name="対局の振り返り", exact=True)).to_be_visible()
+        page.reload(wait_until="domcontentloaded")
+        wait_boot(page)
+        assert state(page)["lessonAttempts"] == attempts
+
+
 def generate_fixtures() -> JSON_DATA:
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
     bundled = ARTIFACTS / "fixtures.mjs"
@@ -455,7 +504,7 @@ def main() -> int:
             browser = playwright.chromium.launch(headless=True, timeout=30_000)
             try:
                 report["browser"] = browser.version
-                for test in (export_restore_reload, invalid_and_quota, damaged_boot, alternate_hint_repeat, replace_displayed_review):
+                for test in (export_restore_reload, invalid_and_quota, damaged_boot, alternate_hint_repeat, replace_displayed_review, game_to_lesson):
                     case_start = time.monotonic()
                     case: JSON_DATA = {"name": test.__name__}
                     try:
@@ -478,7 +527,7 @@ def main() -> int:
     finally:
         signal.alarm(0)
         report["seconds"] = round(time.monotonic() - started, 2)
-        report["passed"] = not report.get("fatal") and len(report["cases"]) == 5 and all(case["status"] == "passed" for case in report["cases"])
+        report["passed"] = not report.get("fatal") and len(report["cases"]) == 6 and all(case["status"] == "passed" for case in report["cases"])
         (ARTIFACTS / "results.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     return 0 if report["passed"] else 1
 

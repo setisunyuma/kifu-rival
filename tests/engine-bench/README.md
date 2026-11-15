@@ -64,3 +64,14 @@ Node 24.22.1で実測。Node側では`wasmBinary`に読み込んだバイト列�
 アダプターは不正な着手・入玉宣言、古い局面の結果、期限超過、通信失敗を拒否する。中断時にUSIの`stop`だけで再利用せずWorkerごと終了するのは、識別子のない遅延`bestmove`を次の要求へ混ぜないためである。新しいWorkerを作れば再開できる。通常の対局は`position startpos moves ...`、独自開始局面は手数フィールド付き`position sfen ...`を送る。独自開始局面以前の履歴はエンジンへ渡せないため、終局は引き続き棋友側で判定する。
 
 配布物をユーザーへ提供する前に、[`ENGINE_INTEGRATION_PLAN.md`](../../docs/ENGINE_INTEGRATION_PLAN.md)の採用・権利・実機確認の残条件を満たす。`npm pack`したエンジンや展開先はコミットしない。
+
+## 設定どうしの対局（2026-11-16、KIF-022）
+
+アプリと同じ`EngineRival`と着手選択層を使い、強さの設定どうしを対局させる。エンジンはリポジトリ外。
+
+```sh
+KIFU_FAIRY_WASM_DIR="$engine_lab/package" \
+  node tests/engine-bench/run-policy-ladder.mjs --pair strong:practice --games 6 [--style balanced] [--purpose close-game]
+```
+
+結果は`.sites-runtime/engine-ladder/ladder-<a>-<b>.json`（Git管理外）。1局あたり数分かかる。要約は`docs/INTEGRATION_STATUS.md` §4。

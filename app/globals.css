@@ -663,3 +663,36 @@ body {
   .backup-actions > button { flex: 1 1 135px; justify-content: center; }
   .save-status { display: grid; gap: 6px; }
 }
+
+/* KIF-021 engine opponent (development) */
+.engine-alert { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 10px 0; padding: 12px 14px; border-radius: 10px; border: 1px solid #d9b98a; background: #fbf3e4; font-size: 14px; }
+.engine-alert strong { width: 100%; }
+.engine-info { margin: 8px 0; font-size: 13px; color: #4a5a52; }
+.engine-info summary { cursor: pointer; font-weight: 600; }
+.engine-info ul { margin: 6px 0 0; padding-left: 18px; }
+
+/* KIF-032 P3 replay → lesson path */
+.record-study { margin-left: auto; white-space: nowrap; }
+.review-open { cursor: pointer; }
+.game-study { margin-bottom: 18px; }
+.game-study .daily-plan-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+.game-study .daily-plan-head .text-button { margin-left: auto; }
+.study-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.study-chip { border: 1px solid #c9b48f; background: #fff; border-radius: 999px; padding: 4px 10px; font-size: 13px; cursor: pointer; }
+.study-chip-active { background: #2f4a3e; color: #fff; border-color: #2f4a3e; }
+.study-chip-chance { border-style: dashed; }
+.study-board { max-width: 420px; margin: 8px auto; }
+.replay-controls { display: flex; align-items: center; gap: 6px; max-width: 420px; margin: 0 auto; }
+.replay-controls button { border: 1px solid #c8cdc6; background: #fff; border-radius: 8px; padding: 6px 8px; cursor: pointer; }
+.replay-controls input { flex: 1; }
+.replay-label { text-align: center; font-size: 13px; color: #4a5a52; margin: 6px 0; }
+.study-card { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 10px; background: #fbf3e4; border: 1px solid #e3cfa7; }
+.study-card-chance { background: #eef4ef; border-color: #b9cdbf; }
+.study-card strong { display: flex; gap: 6px; align-items: center; }
+.study-next { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.study-banner { margin-bottom: 18px; }
+.study-banner .daily-plan-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+.study-banner .daily-plan-head .text-button { margin-left: auto; }
+.study-steps { margin: 8px 0; padding-left: 4px; list-style: none; display: grid; gap: 4px; }
+.study-steps .step-current { font-weight: 700; }
+.study-steps .step-done { color: #3b7350; }

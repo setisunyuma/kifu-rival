@@ -6,7 +6,7 @@ import { runInNewContext } from "node:vm";
 import { initialGame, legalMoves, playMove, toSfen, usi } from "../lib/shogi";
 import { UsiAdapter, EngineError, analysisMove, enginePositionKey, parseInfo, positionCommand } from "../lib/engine/usi-adapter";
 import type { EngineAnalysis, EngineCandidate, UsiTransport } from "../lib/engine/usi-adapter";
-import { choosePolicyMove } from "../lib/engine/rival-policy";
+import { STRENGTH_PROFILES, choosePolicyMove, decideRivalAction } from "../lib/engine/rival-policy";
 
 class FakeTransport implements UsiTransport {
   sent: string[] = [];
@@ -115,7 +115,7 @@ test("USI: normal games preserve move history and stale histories are rejected",
   const result = sample([candidate("7g7f", 100)]);
   const different = { ...initial, positionLog: [{ key: "different repetition state", check: false }] };
   assert.throws(() => analysisMove(different, result), (e: EngineError) => e.code === "input");
-  assert.throws(() => choosePolicyMove(different, result, { strength: "strong", style: "balanced", seed: 1 }), (e: EngineError) => e.code === "input");
+  assert.throws(() => choosePolicyMove(different, result, { strength: "strong", style: "balanced" }), (e: EngineError) => e.code === "input");
 });
 
 test("USI: custom starting positions include the required SFEN move-number field", () => {
@@ -128,23 +128,47 @@ test("USI: custom starting positions include the required SFEN move-number field
 test("policy: adaptive profiles preserve mate scores and avoid negative mates with cp candidates", () => {
   const mate = { ...candidate("2g2f", 1, 2), score: { kind: "mate" as const, value: 3 } };
   for (const strength of ["balanced", "practice"] as const) {
-    assert.equal(choosePolicyMove(initialGame(), sample([candidate("7g7f", 10), mate]), { strength, style: "solid", seed: 123 })?.notation, "2g2f");
+    assert.equal(choosePolicyMove(initialGame(), sample([candidate("7g7f", 10), mate]), { strength, style: "solid" })?.notation, "2g2f");
     const losing = { ...candidate("2g2f", 1, 2), score: { kind: "mate" as const, value: -3 } };
-    assert.equal(choosePolicyMove(initialGame(), sample([candidate("7g7f", 10), losing]), { strength, style: "active", seed: 123 })?.notation, "7g7f");
-    assert.equal(choosePolicyMove(initialGame(), sample([candidate("7g7f", 10), losing], "2g2f"), { strength, style: "active", seed: 123 })?.notation, "7g7f");
+    assert.equal(choosePolicyMove(initialGame(), sample([candidate("7g7f", 10), losing]), { strength, style: "active" })?.notation, "7g7f");
+    assert.equal(choosePolicyMove(initialGame(), sample([candidate("7g7f", 10), losing], "2g2f"), { strength, style: "active" })?.notation, "7g7f");
   }
 });
 
-test("policy: candidate score budgets and seeded choices stay deterministic", () => {
+test("policy: no randomness; budgets, easing toward a target lead, style and purpose are deterministic", () => {
   const game = initialGame(), result = sample([candidate("7g7f", 100), candidate("2g2f", 60, 2), candidate("5g5f", -200, 3)]);
-  for (let seed = 1; seed <= 20; seed++) {
-    const config = { strength: "practice" as const, style: "balanced" as const, seed };
+  for (const style of ["balanced", "active", "solid"] as const) {
+    const config = { strength: "practice" as const, style };
     const choice = choosePolicyMove(game, result, config)!;
     assert.notEqual(choice.notation, "5g5f");
-    assert.ok((choice.lossCp ?? 0) <= 180);
+    assert.ok((choice.lossCp ?? 0) <= STRENGTH_PROFILES.practice.budgetCp);
     assert.deepEqual(choice, choosePolicyMove(game, result, config));
   }
-  assert.equal(choosePolicyMove(game, result, { strength: "strong", style: "active", seed: 1 })?.notation, "7g7f");
+  assert.equal(choosePolicyMove(game, result, { strength: "strong", style: "active" })?.notation, "7g7f");
+  // Behind or level: the best candidate in the budget is chosen (no deliberate error).
+  assert.equal(choosePolicyMove(game, result, { strength: "practice", style: "balanced" })?.notation, "7g7f");
+  // Far ahead: practice eases toward a +100 lead, but never beyond its 200cp budget.
+  const ahead = sample([candidate("7g7f", 600), candidate("2g2f", 450, 2), candidate("5g5f", 120, 3)]);
+  const eased = choosePolicyMove(game, ahead, { strength: "practice", style: "balanced" })!;
+  assert.equal(eased.notation, "2g2f");
+  assert.match(eased.reason, /差を100付近/);
+  // Purpose "win" disables easing.
+  assert.equal(choosePolicyMove(game, ahead, { strength: "practice", style: "balanced", purpose: "win" })?.notation, "7g7f");
+  // A large gap to the second candidate is treated as a forced move.
+  const forced = sample([candidate("7g7f", 400), candidate("2g2f", 100, 2)]);
+  assert.equal(choosePolicyMove(game, forced, { strength: "practice", style: "active" })?.notation, "7g7f");
+});
+
+test("policy: resignation depends on purpose; engine 'win' becomes a declaration", () => {
+  const game = initialGame();
+  const lost = { ...sample([{ ...candidate("7g7f", 0), score: { kind: "mate" as const, value: -1 } }]) };
+  assert.equal(decideRivalAction(game, lost, { strength: "strong", style: "balanced" }).kind, "resign");
+  assert.equal(decideRivalAction(game, lost, { strength: "strong", style: "balanced", purpose: "finish-practice" }).kind, "move");
+  const resigned = { ...sample([candidate("7g7f", -3000)]), bestmove: "resign" };
+  assert.equal(decideRivalAction(game, resigned, { strength: "practice", style: "balanced" }).kind, "resign");
+  const kept = decideRivalAction(game, resigned, { strength: "practice", style: "balanced", purpose: "finish-practice" });
+  assert.equal(kept.kind === "move" && kept.choice.notation, "7g7f");
+  assert.equal(decideRivalAction(game, { ...sample([]), bestmove: "win" }, { strength: "strong", style: "balanced" }).kind, "declare");
 });
 
 test("browser probe: a worker failure is followed by a fresh successful worker", async () => {

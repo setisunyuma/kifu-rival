@@ -1,0 +1,43 @@
+# 配備先の比較（KIF-003）
+
+作成: 2026-11-15（Claude）。**比較と提案であり、決定ではない**。最終決定までは現行のChatGPT Sites版を維持する（ADR-011）。料金・制限は2026-11-15時点の公式文書と二次情報の要約。**二次情報だけの値は「要確認」**とし、契約前に公式ページで再確認する。有料化はユーザーの承認事項。
+
+## 前提（KIF-020の実測から）
+
+| 用途 | 必要な資源 | 実行場所の候補 |
+| --- | --- | --- |
+| 対局AI（入門〜級位） | 評価関数ファイル不要の軽量エンジン。WASM本体1.6MB、ブラウザで1スレッド約14万局面/秒（PCのChromium）。Lv.4に全勝 | **利用者の端末（Web Worker）**。サーバー不要 |
+| 強い解析（感想戦・教材検証・有段者） | Fairy-Stockfish＋将棋NNUE（159MB、RSS約440MB、ネイティブ1スレッド約55万局面/秒） | ネイティブのプロセスを動かせるサーバー。端末には不向き |
+| アプリ本体・保存 | Next.js（vinext）＋D1（SQLite）。利用者は本人のみ | 現行Sites、またはCloudflare／Railway |
+
+つまり**当面のエンジン強化（KIF-021）は配備先を変えなくても実現できる**。配備先の比較が効いてくるのは、サーバー側で強い解析を動かすときと、Sitesの制約（権限・配備の自動化・データの持ち出し）が問題になるとき。
+
+## 比較
+
+| 観点 | 現行 ChatGPT Sites | Cloudflare単独（自分のアカウント） | Railway単独 | Cloudflare＋Railway |
+| --- | --- | --- | --- | --- |
+| 開発の容易さ | 現行のまま。配備はSites権限を持つChatGPTのみ（Claudeは不可） | 現行と同じ技術（Workers＋D1）なので移行が小さい。`wrangler`とGitHub連携で配備できる | Node.jsサーバーとして動かせる。Workers固有の制約がない | 2系統の管理が必要 |
+| 将棋エンジン | 端末内WASMのみ現実的 | WorkersはネイティブプロセスとSIMD以外の重い計算に不向き。159MBのNNUEは載らない。軽量WASMなら可能だがCPU課金と1回あたりのCPU時間上限（上限値は要確認） | **ネイティブのUSIエンジンを常駐・起動できる**。NNUEも可 | アプリはCloudflare、解析はRailwayの別サービス |
+| 月額費用の目安 | 追加費用は現状なし（ChatGPTの契約の範囲。詳細は未確認） | Workers有料プランは月5ドルから（無料枠あり。D1の有料単価は要確認） | Hobbyは月5ドル（同額の利用分を含む）。従量でメモリ1GBあたり月約10ドル、1vCPUあたり月約20ドル（公式文書） | 両方の合計。解析を必要時だけ動かせば、Railway側は少額に収まる見込み（要実測） |
+| データベース移行 | 不要 | D1→D1（同じSQLite）。**SitesのD1からデータを書き出せるかが未確認**で、最大の障害 | D1→PostgreSQLまたはSQLite（ボリューム）。スキーマの書き換えが必要 | アプリ側はD1のまま |
+| 非公開の認証 | 組み込み（Sign in with ChatGPT＋Sitesのアクセス制御）。最も簡単 | Cloudflare Accessで本人のみに制限できる（無料枠の条件は要確認）。現行のChatGPT認証ヘッダーは使えないため、利用者IDの付け替えが必要 | 自前の認証が必要（OAuthやパスキー等）。作業量が最も大きい | アプリ側はCloudflare Access、Railwayの解析APIはアプリからの内部呼び出しに限定 |
+| 保守性 | 権限がChatGPT側に集中。リリース手順（RELEASE.md）が必須 | 構成が単純。Claudeからも配備を自動化しやすい | 単一のプラットフォームで完結 | 部品は増えるが、エンジンを独立したプロセスに分けるADR-008とよく合う |
+| 自動配備 | なし（手動） | GitHub連携で可能。ただし「マージ＝配備」にしないよう、タグやリリースブランチからの配備に限る | GitHub連携で可能（同上の注意） | 同上 |
+
+## 提案
+
+1. **今（KIF-021〜022）**: 現行のChatGPT Sitesを維持する。エンジンは利用者の端末のWeb Workerで動かすので、配備先の変更は不要。ただしWASMの読込に**COOP/COEPヘッダー**（cross-origin isolation）が必要な構成では、Sitesでそのヘッダーを設定できるかを先に確認する。設定できなければ、シングルスレッド版（`SharedArrayBuffer`不要）を選ぶ。
+2. **強い解析が必要になったとき**: **Cloudflare＋Railway**を推奨する。アプリと保存は現在と同じ技術のCloudflare（自分のアカウント、Cloudflare Accessで本人限定）、ネイティブエンジンはRailwayの別サービスに置き、アプリのサーバーからだけ呼ぶ。Railway単独はエンジンには最適だが、認証とDBの作り直しが重い。Cloudflare単独は強い解析を動かせない。
+3. **移行の前提条件**: (a) SitesのD1からデータを書き出せることを確認する（できなければ移行しない）。(b) 本人限定の認証を移行先で先に検証する。(c) 月額の上限をユーザーが決める。(d) 配備は`docs/RELEASE.md`と同じく、SHAを固定した明示的な操作にする。
+
+## 判断のきっかけ（移行を検討する条件）
+
+- サーバー側で強い解析（NNUE）を常用したくなったとき。
+- Sitesの権限の都合でリリースが滞るとき。
+- 本人以外の利用（家族・友人など）を検討するとき（公開範囲の変更はユーザー承認事項）。
+
+## 出典
+
+- Railway: [Pricing Plans（公式文書）](https://docs.railway.com/pricing/plans)、[料金ページ](https://railway.com/pricing)
+- Cloudflare: [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/)、[D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/)
+- 棋友の実測: `docs/ENGINE_INTEGRATION_PLAN.md`（KIF-020 実測 第1回）

@@ -149,3 +149,11 @@
 - Base commit: `53557f6`
 - Changes: 規則を対局開始時に`Game.declarationRule`へ確定、宣言・説明・AI判断の関数、宣言ボタンと確認パネル、次の対局の規則設定（localStorageの任意キー`declarationRule`、旧データはそのまま読める）。D1・APIは未変更（対局結果は既存の`black/white/draw`で保存）。
 - Validation: `test:unit` 45/45 PASS。Chromium 375×812で、敵陣入玉の保存局面から宣言の確認→引き分け終局→記録保存を確認。iPhone実機は未確認。
+
+## 2026-11-15 — 教材体系の設計書と配備先の比較（手動レビュー）
+
+- Actor: Claude（Claude Codeクラウド）
+- Base commit: `aa951d4`
+- Docs: `docs/CURRICULUM.md`（KIF-030〜032: 参考資料の比較、技能マップ、進級・補習・復習、品質保証L0〜L4、実装候補の優先順位、初期検証の合格条件、不確実性）と`docs/DEPLOYMENT_OPTIONS.md`（KIF-003: Sites／Cloudflare単独／Railway単独／Cloudflare＋Railwayの比較。当面はSites維持＋端末内エンジン、強い解析が必要になればCloudflare＋Railwayを推奨）。新規文書のため`[manual]`のPRで提案。
+- Sources: 日本将棋連盟の公式ページ・PDF（オンライン将棋スクール初心者講座）、学習指導要領の報道、書誌情報（国立国会図書館・出版社・書店）、Railway・Cloudflareの公式料金文書。書籍の本文は読んでいない（推測は推測と明記）。
+- Next: ユーザーのレビュー。並行してP3・P4（習熟度と最小の学習ループ）の実装。

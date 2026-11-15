@@ -63,7 +63,9 @@
 - Evidence: 現 `chooseRivalMove` は浅い読みで、Lv.4も弱いとのユーザー評価。採用エンジンは未決。
 - Evidence (Claude, 2026-11-15): 机上調査第1回を`docs/ENGINE_INTEGRATION_PLAN.md`に記録。YaneuraOu本家、shielune/YaneuraOu（WASM配布フォーク、Cloudflare Workers用シングルスレッド版あり）、Fairy-Stockfish（公式WASM npm）、Apery Rust、dlshogi、`yaneuraou.wasm`を一次資料で比較。全てGPL-3.0系。評価関数の権利は候補ごとに未確認点が残る。**ビルド・実測・取込みは未実施**。
 - Evidence (Claude, 2026-11-15, 実測第1回): ADR-010の許可に基づきリポジトリ外でYaneuraOu駒得版（`2bc64b4`）とFairy-Stockfish（`014b077`、手作り評価／CC0の将棋NNUE）をビルド・実行し、66局を対局。現行Lv.4は3エンジンに0勝18敗。YaneuraOu駒得版はFairy手作り評価に9勝3敗、Fairy NNUEは両者に12勝0敗。全手を棋友の`legalMoves`で検証して**不正手0件**。速度・メモリ・ブラウザWASM（Chromium）の実測、評価関数の権利（Fairy将棋NNUEは配布ページの記載でCC0、YaneuraOuのNNUEは公開入手経路なし）を`docs/ENGINE_INTEGRATION_PLAN.md`に記録。再現用ハーネスを`tests/engine-bench/`に追加（自作コードのみ、CI対象外）。**iPhone実測と採用判断は未実施**。
-- Next: (1) ユーザーにQ-003（採用候補）の判断を依頼。第一候補は「Web Workerで動く評価関数ファイル不要のエンジン」。(2) YaneuraOu駒得版のWASM化とブラウザでの比較。(3) iPhone Safari用の最小テストページで実機計測（ユーザーの協力が必要）。ライセンスや費用が不明な候補は本番統合しない。
+- Evidence (Claude, 2026-11-15, 試作第2回): ADR-011を受けてブラウザWASMを比較。Fairy手作り評価はChromiumで0.1秒に深さ8・1秒で深さ13（約13万局面/秒）、起動1.2秒、JSヒープ10MB。YaneuraOu駒得版はEmscriptenで自前ビルドしリンクまで成功したが、Chromiumでクラッシュ・NodeでUSI応答なし（未解決）。iPhone計測は、ローカルPCの計測サーバーから同じWi-FiのiPhoneで開く方式を推奨（外部公開なし）。詳細は`docs/ENGINE_INTEGRATION_PLAN.md`。
+- Next: (1) YaneuraOu WASMの不具合を上流CIの設定に沿って切り分ける。(2) iPhone用の計測ページとローカル計測サーバーの手順書を用意し、ユーザーに実機計測を依頼する。(3) ブラウザ条件（0.1〜0.5秒）でLv.4・人間らしい制御層の試作と対局テスト。第三者コードの正式取り込み・配布・本番有効化はライセンスと安全性の確認結果を示して改めて承認を得る（ADR-011）。
+
 
 ## KIF-021 — 棋力を上げるエンジン接続試作
 - Status: BACKLOG
@@ -103,31 +105,35 @@
 - Next: KIF-020の候補と実装/配布方式が決まったら個別ライセンス監査を行う。必要なら専門家の判断を仰ぐ。
 
 ## KIF-030 — 入門〜有段までのカリキュラム体系
-- Status: READY
+- Status: IN_PROGRESS
 - Priority: P1
-- Owner: Unassigned
+- Owner: Claude
 - Depends: none（技能マップ設計は独立可能。個々の問題検証はKIF-010を待つ）
 - Acceptance: 技能マップ、前提関係、講義／練習／実戦／感想戦／定着確認の設計、初心者と有段者の出口基準を明文化する。
 - Evidence: `lib/lessons.ts` は固定6レッスン。段階3〜6は制作予定表示のみ。
-- Next: 入門・基本手筋・序盤・中盤・終盤・詰将棋・戦型ごとのスキル一覧を設計する。
+- Evidence (Claude, 2026-11-15): 参考資料（連盟の学習指導要領・オンラインスクール初心者講座12回の一次資料、指定9冊の書誌）を比較し、技能マップ（9分野34技能、前提関係付き）、進級・補習・復習の比較と推奨、品質保証L0〜L4、実装候補の優先順位、初期検証の合格条件を`docs/CURRICULUM.md`に起草（手動レビューのPRで提案）。技能マップを`lib/lessons.ts`の`SKILLS`としてデータ化し、前提の存在と非循環をテスト。**指示書の前提（教材10件・日課出題・段階解放・PR #21）はGitHubの現物に存在しない**ことを確認し記録（Site側に未同期の変更がある可能性）。
+- Next: `docs/CURRICULUM.md`のユーザー確認。並行してP3（技能ごとの習熟度の端末保存）とP4（今日の3問→記録→復習予定→前提で解放の最小ループ）を実装する。
 
 ## KIF-031 — 検証済み教材と問題バンク
-- Status: BACKLOG
+- Status: IN_PROGRESS
 - Priority: P1
-- Owner: Unassigned
+- Owner: Claude
 - Depends: KIF-030, KIF-021
 - Acceptance: 各問題に盤面・唯一/複数解・根拠・解説・難度・検証方法があり、指し手の正しさを自動検証できる。
 - Evidence: 6題はコードに定数として実装。教材の大規模検証はまだない。
-- Next: 問題スキーマとテストハーネスを作る。
+- Evidence (Claude, 2026-11-15): 品質保証P1を実装。全教材に技能タグ・検証種別（`move`/`capture`/`check`/`mate-in-1`）・出典（`original`のみ許可）を付与し、L0（必須項目）・L1（`validatePosition`と正解の合法性）・L2（取る／王手／詰みの実証、1手詰は全合法手から詰む手を列挙して別解を検出）をテスト化。既存6題で別解なしを確認（一手詰の詰みは`R*5b`のみ）。ミューテーション3種を検出。
+- Next: P2（3手・5手詰の詰み探索による唯一解検証）、L3の人による教育的評価チェックリストの運用開始、転用問題の作問方針。
 
 ## KIF-032 — 適応学習・実戦復習の循環
-- Status: BACKLOG
+- Status: IN_PROGRESS
 - Priority: P2
-- Owner: Unassigned
+- Owner: Claude
 - Depends: KIF-031, KIF-011
 - Acceptance: 対局の弱点→講義／練習→再対局→遅延復習の流れが履歴に基づき成立し、難しさを上げるだけの機構にならない。
 - Evidence: 現在は完了フラグのみ。
-- Next: スキル別習熟度と復習スケジューラーを提案。
+- Evidence (Claude, 2026-11-15): 最小の学習ループ（P3・P4）を実装。`lib/lessons.ts`に回答記録`LessonAttempt`、段階式復習（1→3→7→21日、期限前の解き直しは昇格しない、誤答で1段目へ）、仮の技能習熟（教える全教材が2段目以上）、前提による「新しい」推薦の制御（教材の閲覧は常に可能、教材のない前提は妨げない）、今日の課題（復習・苦手・新規から最大3問）。教材画面に「今日の課題」カード、回答は1回の訪問につき最初の1回だけ端末内（localStorageの任意キー`lessonAttempts`、最大500件）に記録。テスト4件（全52件PASS）。Chromium 375pxで、誤答→「苦手」として先頭に出ることを確認。**数値はすべて初期仮説**。同じ問題の解き直しは暗記で解けるため、習熟判定は転用問題（P6）ができるまで仮。
+- Next: 対局記録からの弱点推定（P5、1手詰の見逃しから）、3・5手詰の検証（P2）、技能ごとの転用問題の作問（P6、品質保証を通したものだけ）。
+
 
 ## KIF-040 — 盤面に根拠を持つ自由会話
 - Status: BACKLOG

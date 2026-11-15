@@ -245,10 +245,14 @@ export function prerequisitesMet(lesson: Lesson, practised: Set<SkillId>, lesson
 
 export type PlanItem = { lessonId: string; reason: "review" | "weak" | "new" | "game" };
 
-/** Skills behind a missed mate found in the player's games: 1-ply -> C1, 3-ply -> C2. */
-export function skillsForMissedMates(missed: { plies: number }[]): SkillId[] {
+/**
+ * Skills behind mates missed in the player's games: 1-ply -> C1, 3-ply -> C2. Only chances
+ * that were actually lost count as weakness evidence; playing a different correct mate
+ * ("shorter-mate-available") is a learning opportunity and is not counted.
+ */
+export function skillsForMissedMates(missed: { plies: number; kind?: string }[]): SkillId[] {
   const out = new Set<SkillId>();
-  for (const m of missed) out.add(m.plies === 1 ? "C1" : "C2");
+  for (const m of missed) if (m.kind !== "shorter-mate-available") out.add(m.plies === 1 ? "C1" : "C2");
   return [...out];
 }
 

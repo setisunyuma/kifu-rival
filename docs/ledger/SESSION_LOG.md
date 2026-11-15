@@ -186,3 +186,11 @@
 - Base commit: `7f9e5fc`
 - Changes: `lib/shogi.ts`に`findMissedMates`、`lib/lessons.ts`に見逃し→技能→教材の推薦と今日の課題の「実戦」枠、成長の記録画面に振り返りの一覧。保存形式・API・D1は未変更（既存の対局記録の手順を読むだけ）。
 - Validation: `test:unit` 61/61 PASS。自己対局で見逃しのある棋譜を作り、Chromium 375×812で表示と推薦を確認。iPhone実機は未確認。
+
+## 2026-11-15 — KIF-032 解析のWeb Worker化と「より短い詰み」の区別
+
+- Actor: Claude（Claude Codeクラウド）
+- Base commit: `07e972a`（PR #19のsquash後）
+- Review: 解析が画面処理を占有しうる、未解析を0件と混同しうる、別の正しい詰みを失敗として推薦する、との指摘を反映。
+- Changes: `hooks/game-review.worker.ts`・`hooks/use-game-review.ts`・`hooks/worker-modules.d.ts`を追加、`lib/shogi.ts`に`reviewGame`（完了状態・打ち切り理由・見逃しの種類）、`lib/lessons.ts`の推薦を「詰みが続かなかった」ものに限定、成長の記録画面の表示を更新。保存形式・API・D1は未変更。
+- Validation: `test:unit` 62/62 PASS。Chromium（開発サーバーと本番ビルド）で応答性・打ち切り表示・入力変更時の結果の入れ替わりを確認。iPhone実機は未確認。

@@ -243,10 +243,39 @@ export function prerequisitesMet(lesson: Lesson, practised: Set<SkillId>, lesson
   return lesson.skills.every(skill => SKILLS[skill].requires.every(req => own.has(req) || !taught.has(req) || practised.has(req)));
 }
 
-export type PlanItem = { lessonId: string; reason: "review" | "weak" | "new" };
+export type PlanItem = { lessonId: string; reason: "review" | "weak" | "new" | "game" };
 
-/** Today's plan: the most overdue review, the most recent mistake, then the next new lesson. */
-export function dailyPlan(attempts: LessonAttempt[], now: Date, lessons: Lesson[] = LESSONS): PlanItem[] {
+/** Skills behind a missed mate found in the player's games: 1-ply -> C1, 3-ply -> C2. */
+export function skillsForMissedMates(missed: { plies: number }[]): SkillId[] {
+  const out = new Set<SkillId>();
+  for (const m of missed) out.add(m.plies === 1 ? "C1" : "C2");
+  return [...out];
+}
+
+/**
+ * Lessons to recommend for skills weak in real games. Falls back to the nearest
+ * prerequisite that has lessons (e.g. C2 -> C1) so a recommendation always exists.
+ */
+export function lessonsForSkills(skills: SkillId[], lessons: Lesson[] = LESSONS): string[] {
+  const ids: string[] = [];
+  for (const skill of skills) {
+    let frontier: SkillId[] = [skill];
+    const seen = new Set<SkillId>();
+    while (frontier.length) {
+      const hits = lessons.filter(l => l.skills.some(s => frontier.includes(s))).map(l => l.id);
+      if (hits.length) { for (const h of hits) if (!ids.includes(h)) ids.push(h); break; }
+      frontier.forEach(f => seen.add(f));
+      frontier = frontier.flatMap(f => SKILLS[f].requires).filter(r => !seen.has(r));
+    }
+  }
+  return ids;
+}
+
+/**
+ * Today's plan: the most overdue review, the most recent mistake, a lesson for a skill the
+ * player's own games showed as weak (`gameSkills`), then the next new lesson.
+ */
+export function dailyPlan(attempts: LessonAttempt[], now: Date, lessons: Lesson[] = LESSONS, gameSkills: SkillId[] = []): PlanItem[] {
   const states = lessonStates(attempts, lessons);
   const nowIso = now.toISOString();
   const plan: PlanItem[] = [];
@@ -261,6 +290,7 @@ export function dailyPlan(attempts: LessonAttempt[], now: Date, lessons: Lesson[
   const fresh = lessons.filter(l => !all.find(s => s.lessonId === l.id)?.lastAt && prerequisitesMet(l, practised, lessons));
   add(due[0]?.lessonId, "review");
   add(weak[0]?.lessonId, "weak");
+  add(lessonsForSkills(gameSkills, lessons).find(id => !taken.has(id)), "game");
   for (const l of fresh) add(l.id, "new");
   for (const s of due.slice(1)) add(s.lessonId, "review");
   for (const s of weak.slice(1)) add(s.lessonId, "weak");

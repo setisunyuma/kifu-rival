@@ -180,6 +180,13 @@
 - Cross-check: リポジトリ外のFairy-Stockfishとランダム400局面で突き合わせ。食い違いはステイルメイトの扱い（エンジンは対局ルールで勝ち、詰将棋では詰みでない）だけ。
 - Validation: `test:unit` 58/58 PASS、ミューテーション3種を検出。
 
+## 2026-11-15 — KIF-032 P2第1段: 対局で見逃した詰みの検出と推薦
+
+- Actor: Claude（Claude Codeクラウド）
+- Base commit: `7f9e5fc`
+- Changes: `lib/shogi.ts`に`findMissedMates`、`lib/lessons.ts`に見逃し→技能→教材の推薦と今日の課題の「実戦」枠、成長の記録画面に振り返りの一覧。保存形式・API・D1は未変更（既存の対局記録の手順を読むだけ）。
+- Validation: `test:unit` 61/61 PASS。自己対局で見逃しのある棋譜を作り、Chromium 375×812で表示と推薦を確認。iPhone実機は未確認。
+
 ## 2026-11-15 — PR #8の結果記録とKIF-003リリース手順
 
 - Actor: Claude（Claude Codeクラウド）

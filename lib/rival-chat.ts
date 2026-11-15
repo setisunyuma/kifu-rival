@@ -1,7 +1,15 @@
-import { Game, isInCheck, usi } from "./shogi";
+import { type DeclarationRule, Game, isInCheck, usi } from "./shogi";
 
 export type RivalMessage = { role: "me" | "rival"; text: string };
-export type RivalGameRecord = { id: string; date: string; result: "black" | "white" | "draw"; moves: string[] };
+export type RivalGameRecord = {
+  id: string;
+  date: string;
+  result: "black" | "white" | "draw";
+  moves: string[];
+  /** Older records start at the standard initial position and use JSA rules. */
+  startSfen?: string;
+  declarationRule?: DeclarationRule;
+};
 
 export type RivalChatContext = {
   game: Game;

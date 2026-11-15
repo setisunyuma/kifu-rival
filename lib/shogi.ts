@@ -580,7 +580,8 @@ export function reviewGame(moves: string[], side: Side = "black", maxPlies: 1 | 
   let game = start;
   let ply = 0;
   const stop = (reason: GameReview["stopReason"]): GameReview => ({ missed, totalPlies: moves.length, analyzedPlies: ply, complete: false, stopReason: reason });
-  for (; ply < moves.length && game.result === "playing"; ply++) {
+  for (; ply < moves.length; ply++) {
+    if (game.result !== "playing") return stop("illegal-move");
     if (options.shouldStop?.()) return stop("cancelled");
     if (options.deadline !== undefined && Date.now() > options.deadline) return stop("time-limit");
     const legal = legalMoves(game);

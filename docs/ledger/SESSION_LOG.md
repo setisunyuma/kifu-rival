@@ -187,6 +187,31 @@
 - Changes: `lib/shogi.ts`に`findMissedMates`、`lib/lessons.ts`に見逃し→技能→教材の推薦と今日の課題の「実戦」枠、成長の記録画面に振り返りの一覧。保存形式・API・D1は未変更（既存の対局記録の手順を読むだけ）。
 - Validation: `test:unit` 61/61 PASS。自己対局で見逃しのある棋譜を作り、Chromium 375×812で表示と推薦を確認。iPhone実機は未確認。
 
+## 2026-11-15 — 教材体系の設計書と配備先の比較（手動レビュー）
+
+- Actor: Claude（Claude Codeクラウド）
+- Base commit: `aa951d4`
+- Docs: `docs/CURRICULUM.md`（KIF-030〜032: 参考資料の比較、技能マップ、進級・補習・復習、品質保証L0〜L4、実装候補の優先順位、初期検証の合格条件、不確実性）と`docs/DEPLOYMENT_OPTIONS.md`（KIF-003: Sites／Cloudflare単独／Railway単独／Cloudflare＋Railwayの比較。当面はSites維持＋端末内エンジン、強い解析が必要になればCloudflare＋Railwayを推奨）。新規文書のため`[manual]`のPRで提案。
+- Sources: 日本将棋連盟の公式ページ・PDF（オンライン将棋スクール初心者講座）、学習指導要領の報道、書誌情報（国立国会図書館・出版社・書店）、Railway・Cloudflareの公式料金文書。書籍の本文は読んでいない（推測は推測と明記）。
+- Next: ユーザーのレビュー。並行してP3・P4（習熟度と最小の学習ループ）の実装。
+
+## 2026-11-15 — PR #15 レビュー第1回の反映（資料の区分・事実と推測の分離）
+
+- Actor: Claude（Claude Codeクラウド）
+- Changes (`docs/CURRICULUM.md`): §0をGitHubとSiteの区別に改め、「教材10件・PR #21・Actions枠・段階解放」を別プロジェクト混入の可能性として確定情報から除外。資料を5区分し、確認済みの事実と推測を分離。『初段になるための将棋勉強法』を浦野真彦著・白夜書房・2011年として訂正（以前の「特定できず」は誤り）。3手詰・5手詰ハンドブックは版ごとの情報を出典別に記載（現行: 浅川書房販売、2024-12-23／2025-04-25、初級〜中級）。連盟「将棋学習ガイドライン」PDFは提示URLが404で未確認（入手待ち）。技術的品質と教育的品質（L3のレビュー項目）を分離、復習・補習・推薦の6候補と指標を比較、ユーザーの暫定順序P0〜P3と統合。`docs/DEPLOYMENT_OPTIONS.md`にブラウザ内／サーバー／併用の比較を追加。
+- Limits: `store.shogi.or.jp`・`book.mynavi.jp`・`web.archive.org`の許可追加を提案したが、環境サービスが変更を受け付けず、書誌は検索結果（版元ドットコム・書店・出版社ページの要約）に基づく。
+
+## 2026-11-15 — PR #15 レビュー第2回: 連盟の総合ガイドPDFの反映
+
+- Actor: Claude（Claude Codeクラウド）
+- Source: ユーザーが見つけた連盟公式PDF「将棋学習指導要領（総合ガイド）」（`/images/about/activities/education/shogi_curriculum_guide.pdf`、4ページ、PDF内に日付なし、サーバー上の更新日2026-07-15）を本文確認。技能面の記述（初級・中級・上級の指導計画、詰将棋を1手→3手・5手へ段階的に、駒落ち・ミニゲーム、感想戦、指し手の理由を説明できるか）を技能マップ・学習ループの根拠として反映。2025年9月の報道の指導要領との同一性は未確認として記載。
+- Changes: L2（1・3・5手詰、PR #18）とL3（記録形式と下書き）の実装状況を更新。優先順位を再評価し、次の着手を「対局記録からの見逃した詰みの検出と教材推薦」とした。書籍の出版社「浅川書房」の記載は維持。
+
+## 2026-11-15 — PR #15 レビュー第3回: 文書の訂正
+
+- Actor: Claude（Claude Codeクラウド）
+- Changes: 教材6題の内訳を「王手1」に訂正（成りの教材はない）。「出版社ページ」を「出版社・販売サイトの商品紹介ページ」と区別した表記に修正。配備比較で、ブラウザ内エンジンの解析を「不可」と断定せず端末性能・負荷・時間に依存し、iPhoneは未実測と記載。併用構成の費用を、最低料金と稼働CPU・メモリ・稼働時間に依存する表現に修正。設計の方向性は不変。
+
 ## 2026-11-15 — KIF-032 解析のWeb Worker化と「より短い詰み」の区別
 
 - Actor: Claude（Claude Codeクラウド）
@@ -194,3 +219,11 @@
 - Review: 解析が画面処理を占有しうる、未解析を0件と混同しうる、別の正しい詰みを失敗として推薦する、との指摘を反映。
 - Changes: `hooks/game-review.worker.ts`・`hooks/use-game-review.ts`・`hooks/worker-modules.d.ts`を追加、`lib/shogi.ts`に`reviewGame`（完了状態・打ち切り理由・見逃しの種類）、`lib/lessons.ts`の推薦を「詰みが続かなかった」ものに限定、成長の記録画面の表示を更新。保存形式・API・D1は未変更。
 - Validation: `test:unit` 62/62 PASS。Chromium（開発サーバーと本番ビルド）で応答性・打ち切り表示・入力変更時の結果の入れ替わりを確認。iPhone実機は未確認。
+
+## 2026-11-16 — PR #15へ最新mainを取り込み
+
+- Actor: ChatGPT
+- Base commit: PR #15の`fdfb21a`と、PR #20マージ後のmain `1ef202d3d9626175cc3e5c8e120d30ed7a54459e`。
+- Changes: `SESSION_LOG.md`だけの競合を解消し、両ブランチの記録を残した。既存の指摘対応とmainのWorker解析を両立。
+- Validation: `test:unit` 62/62 PASS、lint・型チェック・build・ledger:check・public:check・diff --checkがすべてPASS。UI固有の追加変更はなく、iPhone実機の確認は未実施。新しい取り込みコミットのCIはpush後に確認する。
+- Boundary: 手動レビュー対象を維持。PRのマージ、Site同期・配備は実施していない。

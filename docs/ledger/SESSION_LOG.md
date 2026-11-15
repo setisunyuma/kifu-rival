@@ -117,6 +117,16 @@
 - Not editable via auto-merge: `docs/ledger/OPEN_QUESTIONS.md`の`Q-009`の部分解決（Claude発PRの無人マージ確認）と、squashコミット作者メールの公開に関する新しい問いは、自動対象外ファイルのため次の手動PRで反映する。
 - Next: `KIF-010`の持将棋／入玉宣言の仕様案、`KIF-020`の一時環境での実測。
 
+## 2026-11-15 — KIF-010 持将棋・入玉の規定確認と判定関数
+
+- Actor: Claude（Claude Codeクラウド）
+- Base commit: `6002ddda50be81ab97731069cb79dba783e4baa5`
+- Environment: `www.shogi.or.jp`と`fairy-stockfish.github.io`がネットワーク許可外だったため、ユーザーの個人環境`KIYU-Development`に2ホストの追加と`npm ci`のセットアップスクリプトを提案し、承認・反映された。セットアップスクリプトは新しいコンテナで未実証。
+- Sources: 日本将棋連盟「対局規則」HTMLとPDF（`/match/taikyoku_rules/`、改定PDF 2025-10-01は第9条5項の項番号の誤植修正のみ）、連盟FAQ（`/faq/rules/`）。
+- Changes: 500手持将棋を`playMove`へ。入玉宣言の判定関数（連盟規則・27点法）と点数計算を追加。画面・AIへの接続はQ-011の判断待ち。保存形式・API・D1は未変更。
+- Validation: `test:unit` 39/39 PASS、ミューテーション8種を全検出。lint・型・build・public・ledgerは本PRのCIで確認。
+- Next: Q-011の判断待ち。並行してKIF-020の実測。
+
 ## 2026-11-15 — PR #8の結果記録とKIF-003リリース手順
 
 - Actor: Claude（Claude Codeクラウド）

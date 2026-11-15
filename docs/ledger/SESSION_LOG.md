@@ -211,3 +211,19 @@
 
 - Actor: Claude（Claude Codeクラウド）
 - Changes: 教材6題の内訳を「王手1」に訂正（成りの教材はない）。「出版社ページ」を「出版社・販売サイトの商品紹介ページ」と区別した表記に修正。配備比較で、ブラウザ内エンジンの解析を「不可」と断定せず端末性能・負荷・時間に依存し、iPhoneは未実測と記載。併用構成の費用を、最低料金と稼働CPU・メモリ・稼働時間に依存する表現に修正。設計の方向性は不変。
+
+## 2026-11-15 — KIF-032 解析のWeb Worker化と「より短い詰み」の区別
+
+- Actor: Claude（Claude Codeクラウド）
+- Base commit: `07e972a`（PR #19のsquash後）
+- Review: 解析が画面処理を占有しうる、未解析を0件と混同しうる、別の正しい詰みを失敗として推薦する、との指摘を反映。
+- Changes: `hooks/game-review.worker.ts`・`hooks/use-game-review.ts`・`hooks/worker-modules.d.ts`を追加、`lib/shogi.ts`に`reviewGame`（完了状態・打ち切り理由・見逃しの種類）、`lib/lessons.ts`の推薦を「詰みが続かなかった」ものに限定、成長の記録画面の表示を更新。保存形式・API・D1は未変更。
+- Validation: `test:unit` 62/62 PASS。Chromium（開発サーバーと本番ビルド）で応答性・打ち切り表示・入力変更時の結果の入れ替わりを確認。iPhone実機は未確認。
+
+## 2026-11-16 — PR #15へ最新mainを取り込み
+
+- Actor: ChatGPT
+- Base commit: PR #15の`fdfb21a`と、PR #20マージ後のmain `1ef202d3d9626175cc3e5c8e120d30ed7a54459e`。
+- Changes: `SESSION_LOG.md`だけの競合を解消し、両ブランチの記録を残した。既存の指摘対応とmainのWorker解析を両立。
+- Validation: `test:unit` 62/62 PASS、lint・型チェック・build・ledger:check・public:check・diff --checkがすべてPASS。UI固有の追加変更はなく、iPhone実機の確認は未実施。新しい取り込みコミットのCIはpush後に確認する。
+- Boundary: 手動レビュー対象を維持。PRのマージ、Site同期・配備は実施していない。

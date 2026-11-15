@@ -61,7 +61,8 @@
 - Acceptance: 複数の候補について強さ、棋譜形式、iPhone/Cloudflare適合、推論遅延、ライセンス、保守、費用、オフライン可能性を実測／一次資料で比較し、採用候補と理由を提示する。
 - Evidence: 現 `chooseRivalMove` は浅い読みで、Lv.4も弱いとのユーザー評価。採用エンジンは未決。
 - Evidence (Claude, 2026-11-15): 机上調査第1回を`docs/ENGINE_INTEGRATION_PLAN.md`に記録。YaneuraOu本家、shielune/YaneuraOu（WASM配布フォーク、Cloudflare Workers用シングルスレッド版あり）、Fairy-Stockfish（公式WASM npm）、Apery Rust、dlshogi、`yaneuraou.wasm`を一次資料で比較。全てGPL-3.0系。評価関数の権利は候補ごとに未確認点が残る。**ビルド・実測・取込みは未実施**。
-- Next: リポジトリ外の一時環境でYaneuraOu系シングルスレッドWASMとFairy-Stockfish WASMを固定時間で実測し、現行Lv.4との対局を行う。評価関数の原典ライセンスを確認する。ライセンスや費用が不明な候補は本番統合しない。
+- Evidence (Claude, 2026-11-15, 実測第1回): ADR-010の許可に基づきリポジトリ外でYaneuraOu駒得版（`2bc64b4`）とFairy-Stockfish（`014b077`、手作り評価／CC0の将棋NNUE）をビルド・実行し、66局を対局。現行Lv.4は3エンジンに0勝18敗。YaneuraOu駒得版はFairy手作り評価に9勝3敗、Fairy NNUEは両者に12勝0敗。全手を棋友の`legalMoves`で検証して**不正手0件**。速度・メモリ・ブラウザWASM（Chromium）の実測、評価関数の権利（Fairy将棋NNUEは配布ページの記載でCC0、YaneuraOuのNNUEは公開入手経路なし）を`docs/ENGINE_INTEGRATION_PLAN.md`に記録。再現用ハーネスを`tests/engine-bench/`に追加（自作コードのみ、CI対象外）。**iPhone実測と採用判断は未実施**。
+- Next: (1) ユーザーにQ-003（採用候補）の判断を依頼。第一候補は「Web Workerで動く評価関数ファイル不要のエンジン」。(2) YaneuraOu駒得版のWASM化とブラウザでの比較。(3) iPhone Safari用の最小テストページで実機計測（ユーザーの協力が必要）。ライセンスや費用が不明な候補は本番統合しない。
 
 ## KIF-021 — 棋力を上げるエンジン接続試作
 - Status: BACKLOG
@@ -97,6 +98,7 @@
 - Depends: KIF-020
 - Acceptance: エンジン本体と評価関数・定跡・重み・ライブラリごとの権利表示とライセンスを特定し、想定するプロセス間連携・WASM配布・サーバー利用ごとの義務を一次資料で確認、採用と配布条件をユーザーが判断できる資料にする。
 - Evidence: `docs/ENGINE_INTEGRATION_PLAN.md` に候補と一般的なGPL注意点を記載。特定バージョンを選んだ審査・法的結論は未実施。
+- Evidence (Claude, 2026-11-15): Fairy-Stockfishの将棋NNUE（`shogi-9ab5e57f31d0.nnue`、2026-11-03）は公式配布ページに「2026年以降のネットワークはCC0」と記載。YaneuraOuのNNUE評価関数は支援者向け配布で、公開の入手経路・再配布条件を確認できない。評価関数ファイル不要の構成（YaneuraOu駒得版・Fairy手作り評価）はエンジン本体のGPLv3のみが論点。詳細は`docs/ENGINE_INTEGRATION_PLAN.md`。
 - Next: KIF-020の候補と実装/配布方式が決まったら個別ライセンス監査を行う。必要なら専門家の判断を仰ぐ。
 
 ## KIF-030 — 入門〜有段までのカリキュラム体系

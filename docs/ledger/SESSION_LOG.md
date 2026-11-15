@@ -143,6 +143,35 @@
 - Results: 現行Lv.4は0勝18敗。強さの順はFairy NNUE ＞ YaneuraOu駒得版 ＞ Fairy手作り評価 ≫ Lv.4。不正手0件。詳細は`docs/ENGINE_INTEGRATION_PLAN.md`。
 - Not done: iPhone実測、YaneuraOuのWASM化、採用判断（Q-003、ユーザー判断）。
 
+## 2026-11-15 — 入玉宣言を対局画面とAIへ接続（ADR-011）
+
+- Actor: Claude（Claude Codeクラウド）
+- Base commit: `53557f6`
+- Changes: 規則を対局開始時に`Game.declarationRule`へ確定、宣言・説明・AI判断の関数、宣言ボタンと確認パネル、次の対局の規則設定（localStorageの任意キー`declarationRule`、旧データはそのまま読める）。D1・APIは未変更（対局結果は既存の`black/white/draw`で保存）。
+- Validation: `test:unit` 45/45 PASS。Chromium 375×812で、敵陣入玉の保存局面から宣言の確認→引き分け終局→記録保存を確認。iPhone実機は未確認。
+
+## 2026-11-15 — KIF-030/031 教材の技能マップと品質検証（P1）
+
+- Actor: Claude（Claude Codeクラウド）
+- Base commit: `aa951d4`（PR #13のsquash後の`main`。PR #13は無人マージ済み）
+- Changes: `lib/lessons.ts`に技能マップ`SKILLS`と教材メタデータ（技能・検証種別・出典）を追加。教材の文面・盤面・IDは不変。品質検証テスト3件（全48件PASS）、ミューテーション3種を検出。
+- Finding: ユーザーの参考指示書が前提とする「初期教材10件」「日課出題」「段階解放」「PR #21」はGitHubの現物に存在しない。ChatGPT Site側に未同期の変更がある場合、`docs/RELEASE.md`の`verify`で検出し、初回リリース前にGitHubへ取り込む必要がある。
+- Design: `docs/CURRICULUM.md`（参考資料の比較・技能マップ・品質保証・優先順位）は自動対象外の新規文書のため、別の手動レビューPRで提案する。
+
+## 2026-11-15 — KIF-032 最小の学習ループ（今日の課題・復習・前提）
+
+- Actor: Claude（Claude Codeクラウド）
+- Base commit: `5d50bcc`（PR #14のsquash後の`main`。PR #14は無人マージ済み）
+- Changes: `lib/lessons.ts`に学習ループの純関数、教材画面に「今日の課題」。回答記録はlocalStorageの任意キー`lessonAttempts`（旧データはそのまま読める）。D1・APIへの送信なし。
+- Validation: `test:unit` 52/52 PASS。Chromium 375×812で、課題カードの表示、誤答の記録（1訪問1回）、苦手の再提示を確認。iPhone実機は未確認。
+
+## 2026-11-15 — KIF-020 試作 第2回（ブラウザWASMの比較）
+
+- Actor: Claude（Claude Codeクラウド）
+- Base commit: `3b462d5`（PR #16のsquash後の`main`。PR #16は無人マージ済み）
+- Work: リポジトリ外でEmscripten（emsdk）を導入し、YaneuraOu駒得版をWASM化。Chromiumで、Fairy-Stockfish WASMと同条件で比較した。YaneuraOu WASMは動作せず（クラッシュ／応答なし）、原因は未解決。第三者のコード・バイナリはコミットしていない。
+- Next: YaneuraOu WASMの切り分け、iPhone計測の手順書（ローカル計測サーバー方式）。
+
 ## 2026-11-15 — PR #8の結果記録とKIF-003リリース手順
 
 - Actor: Claude（Claude Codeクラウド）

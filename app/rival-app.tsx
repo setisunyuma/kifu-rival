@@ -9,10 +9,11 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
-  Game, HandKind, HAND_ORDER, Move, PIECE_NAMES, PROMOTED_NAMES, Side,
-  Square, chooseRivalMove, initialGame, legalMoves, playMove, usi,
+  DECLARATION_RULE_LABELS, DeclarationRule, Game, HandKind, HAND_ORDER, Move, PIECE_NAMES, PROMOTED_NAMES, Side,
+  Square, checkDeclaration, chooseRivalMove, declarationRuleOf, declareEntering, explainDeclaration,
+  initialGame, legalMoves, playMove, shouldDeclare, usi,
 } from "../lib/shogi";
-import { LESSONS, ROADMAP } from "../lib/lessons";
+import { LessonAttempt, LESSONS, PlanItem, ROADMAP, dailyPlan } from "../lib/lessons";
 import { RivalGameRecord, RivalMessage, rivalReply } from "../lib/rival-chat";
 
 type View = "play" | "learn" | "rival" | "history";
@@ -126,6 +127,9 @@ export default function RivalApp() {
   const [practiceSelected, setPracticeSelected] = useState<Square | null>(null);
   const [practiceDrop, setPracticeDrop] = useState<HandKind | null>(null);
   const [completed, setCompleted] = useState<string[]>([]);
+  // Answers to lessons, kept on this device only (KIF-032 minimal loop).
+  const [attempts, setAttempts] = useState<LessonAttempt[]>([]);
+  const [attemptRecorded, setAttemptRecorded] = useState(false);
   const [lessonFeedback, setLessonFeedback] = useState("");
   const [showHint, setShowHint] = useState(false);
   const [records, setRecords] = useState<GameRecord[]>([]);
@@ -133,6 +137,9 @@ export default function RivalApp() {
   const [draft, setDraft] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const [toast, setToast] = useState("");
+  // Entering-king rule for the NEXT game. The current game's rule is fixed in game.declarationRule (ADR-011).
+  const [ruleSetting, setRuleSetting] = useState<DeclarationRule>("jsa");
+  const [declaring, setDeclaring] = useState(false);
   const chatScroll = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -145,7 +152,9 @@ export default function RivalApp() {
           const saved = JSON.parse(raw) as Record<string, unknown>;
           if (saved.game && typeof saved.game === "object") setGame(saved.game as Game);
           if (typeof saved.level === "number" && saved.level >= 1 && saved.level <= 4) setLevel(saved.level);
+          if (saved.declarationRule === "jsa" || saved.declarationRule === "amateur27") setRuleSetting(saved.declarationRule);
           if (Array.isArray(saved.completed)) setCompleted(saved.completed.filter(x => typeof x === "string"));
+          if (Array.isArray(saved.lessonAttempts)) setAttempts((saved.lessonAttempts as LessonAttempt[]).filter(a => a && typeof a.lessonId === "string" && typeof a.correct === "boolean" && typeof a.at === "string").slice(-500));
           if (Array.isArray(saved.records)) setRecords(saved.records as GameRecord[]);
           if (Array.isArray(saved.messages) && saved.messages.length) {
             const savedMessages = saved.messages as ChatMessage[];
@@ -175,9 +184,9 @@ export default function RivalApp() {
 
   useEffect(() => {
     if (!hydrated) return;
-    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ game, level, completed, records, messages: messages.slice(-80) })); }
+    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ game, level, declarationRule: ruleSetting, completed, lessonAttempts: attempts.slice(-500), records, messages: messages.slice(-80) })); }
     catch { /* Storage can be blocked by private browsing. */ }
-  }, [hydrated, game, level, completed, records, messages]);
+  }, [hydrated, game, level, ruleSetting, completed, attempts, records, messages]);
 
   // Scroll only within the chat panel. scrollIntoView used to drag the whole
   // iPhone page down to the chat, hiding the board immediately after opening.
@@ -191,8 +200,12 @@ export default function RivalApp() {
   }, [toast]);
 
   const moves = useMemo(() => legalMoves(game), [game]);
+  const gameRule = declarationRuleOf(game);
+  const myDeclaration = useMemo(() => checkDeclaration(game, "black"), [game]);
   const practiceMoves = useMemo(() => legalMoves(practice), [practice]);
   const lesson = LESSONS[lessonIndex];
+  // Computed only after hydration so the server render and the first client render agree.
+  const todayPlan: PlanItem[] = useMemo(() => (hydrated ? dailyPlan(attempts, new Date()) : []), [hydrated, attempts]);
   const stats = { won: records.filter(x => x.result === "black").length, lost: records.filter(x => x.result === "white").length };
 
   function saveMatch(result: GameRecord["result"], moveList: Move[]) {
@@ -203,20 +216,30 @@ export default function RivalApp() {
   }
 
   function commitMove(position: Game, move: Move) {
-    const next = playMove(position, move);
+    finishOrContinue(playMove(position, move));
+  }
+
+  function finishOrContinue(next: Game) {
     setGame(next);
     setSelected(null);
     setSelectedDrop(null);
+    setDeclaring(false);
     if (next.result !== "playing") {
       saveMatch(next.result, next.history);
-      setToast(next.result === "black" ? "あなたの勝ちです。" : "対局が終わりました。");
+      setToast(next.result === "black" ? "あなたの勝ちです。" : next.result === "draw" ? "引き分けになりました。" : "対局が終わりました。");
     }
+  }
+
+  function confirmDeclaration() {
+    if (game.turn !== "black" || game.result !== "playing") return;
+    finishOrContinue(declareEntering(game, "match").game);
   }
 
   const thinking = hydrated && game.turn === "white" && game.result === "playing";
   useEffect(() => {
     if (!hydrated || game.turn !== "white" || game.result !== "playing") return;
     const timer = window.setTimeout(() => {
+      if (shouldDeclare(game)) { finishOrContinue(declareEntering(game, "match").game); return; }
       const move = chooseRivalMove(game, level);
       if (move) commitMove(game, move);
     }, 500);
@@ -235,7 +258,10 @@ export default function RivalApp() {
     setPromotion(null);
     if (!learning) { commitMove(game, move); return; }
     setPracticeSelected(null); setPracticeDrop(null);
-    if (usi(move) !== lesson.answer) {
+    const correct = usi(move) === lesson.answer;
+    // Record only the first answer per visit, so trying several moves is not counted as several mistakes.
+    if (!attemptRecorded) { setAttempts(prev => [...prev, { lessonId: lesson.id, correct, at: new Date().toISOString() }].slice(-500)); setAttemptRecorded(true); }
+    if (!correct) {
       setLessonFeedback("その手も考えられるね。今回は、お題の手を探してみよう。");
       return;
     }
@@ -269,7 +295,7 @@ export default function RivalApp() {
   }
 
   function newGame() {
-    setGame(initialGame()); setSelected(null); setSelectedDrop(null); setPromotion(null);
+    setGame(initialGame(ruleSetting)); setSelected(null); setSelectedDrop(null); setPromotion(null); setDeclaring(false);
     setToast("新しい対局を始めました。");
   }
 
@@ -281,7 +307,7 @@ export default function RivalApp() {
   }
 
   function chooseLesson(index: number) {
-    setLessonIndex(index); setPractice(LESSONS[index].setup()); setPracticeSelected(null); setPracticeDrop(null);
+    setLessonIndex(index); setPractice(LESSONS[index].setup()); setPracticeSelected(null); setPracticeDrop(null); setAttemptRecorded(false);
     setLessonFeedback(""); setShowHint(false); setPromotion(null);
   }
 
@@ -351,12 +377,18 @@ export default function RivalApp() {
                 <div className="board-panel-head"><div><p className="section-eyebrow">PRACTICE MATCH · 棋譜</p><h2>棋友との対局</h2></div><span className="mode-chip"><span /> 練習対局</span></div>
                 <div className="board-status-row"><div className="player-label"><RivalFace /><div><strong>棋友 <small>AI</small></strong><span>対局AI · 調整中</span></div></div><span className="turn-badge">{game.result !== "playing" ? "対局終了" : thinking ? "考慮中" : game.turn === "white" ? "棋友の手番" : "あなたの手番"}</span></div>
                 <div className="board-padding"><ShogiBoard game={game} selected={selected} selectedDrop={selectedDrop} legal={moves} onSquare={(r, c) => handleSquare(r, c, false)} onHand={kind => handleHand(kind, false)} disabled={game.turn !== "black" || game.result !== "playing" || thinking} /></div>
-                <div className="board-actions"><button type="button" className="secondary-button" onClick={newGame}><RotateCcw size={15} /> 新しい対局</button><button type="button" className="text-button" onClick={resign} disabled={game.result !== "playing" || game.history.length === 0}><Flag size={15} /> 投了する</button><span className="move-count">第 {game.history.length} 手</span></div>
-                {game.result !== "playing" && <div className="result-banner"><Crown size={19} /> {game.result === "black" ? "対局終了。あなたの勝ちです。" : game.result === "white" ? "対局終了。棋友の勝ちです。" : "対局終了。引き分けです。"}<button onClick={newGame}>もう一局 <ArrowRight size={14} /></button></div>}
+                <div className="board-actions"><button type="button" className="secondary-button" onClick={newGame}><RotateCcw size={15} /> 新しい対局</button><button type="button" className="text-button" onClick={resign} disabled={game.result !== "playing" || game.history.length === 0}><Flag size={15} /> 投了する</button>{game.result === "playing" && game.turn === "black" && !thinking && myDeclaration.kingInCamp && !declaring && <button type="button" className="secondary-button declare-button" onClick={() => setDeclaring(true)}><Crown size={15} /> 入玉宣言</button>}<span className="move-count">第 {game.history.length} 手</span></div>
+                {declaring && game.result === "playing" && <div className="declare-panel" role="dialog" aria-label="入玉宣言の確認">
+                  <strong>入玉宣言の確認 <small>{DECLARATION_RULE_LABELS[gameRule]}</small></strong>
+                  <ul>{explainDeclaration(myDeclaration).map(item => <li key={item.text} className={item.ok ? "declare-ok" : "declare-ng"}>{item.ok ? "○" : "×"} {item.text}</li>)}</ul>
+                  <p>{myDeclaration.outcome === "win" ? "このまま宣言すると、あなたの勝ちです。" : myDeclaration.outcome === "draw" ? "このまま宣言すると、引き分け（指し直し相当）です。" : "条件を満たしていません。規則どおり、宣言するとあなたの負けになります。"}</p>
+                  <div className="declare-actions"><button type="button" className="secondary-button" onClick={() => setDeclaring(false)}>やめる</button><button type="button" className={myDeclaration.outcome === "lose" ? "text-button" : "primary-button"} onClick={confirmDeclaration}>宣言する</button></div>
+                </div>}
+                {game.result !== "playing" && <div className="result-banner"><Crown size={19} /> {game.result === "black" ? "対局終了。あなたの勝ちです。" : game.result === "white" ? "対局終了。棋友の勝ちです。" : "対局終了。引き分けです。"}{game.declaration && <span className="declare-note">入玉宣言（{game.declaration.side === "black" ? "あなた" : "棋友"}・{game.declaration.points}点）</span>}<button onClick={newGame}>もう一局 <ArrowRight size={14} /></button></div>}
                 <p className="board-disclaimer"><CircleHelp size={13} /> 現在は基本的な合法手に対応する練習AIです。棋力や一部の細かな反則判定は開発途中です。</p>
               </section>
               <aside className="play-rail">
-                <section className="panel rival-card"><div className="rival-card-art"><RivalFace large /></div><div className="rival-card-copy"><span className="tiny-label">YOUR RIVAL / 棋友</span><h3>今日も、良い将棋を。</h3><p>互いに考え抜いた一手を重ねよう。勝っても負けても、次の一局が楽しみだ。</p></div><div className="level-select"><label htmlFor="difficulty"><Settings2 size={14} /> 対局レベル</label><select id="difficulty" value={level} onChange={e => setLevel(Number(e.target.value))}>{LEVELS.map((name, i) => <option key={name} value={i + 1}>Lv.{i + 1} · {name}</option>)}</select></div></section>
+                <section className="panel rival-card"><div className="rival-card-art"><RivalFace large /></div><div className="rival-card-copy"><span className="tiny-label">YOUR RIVAL / 棋友</span><h3>今日も、良い将棋を。</h3><p>互いに考え抜いた一手を重ねよう。勝っても負けても、次の一局が楽しみだ。</p></div><div className="level-select"><label htmlFor="difficulty"><Settings2 size={14} /> 対局レベル</label><select id="difficulty" value={level} onChange={e => setLevel(Number(e.target.value))}>{LEVELS.map((name, i) => <option key={name} value={i + 1}>Lv.{i + 1} · {name}</option>)}</select></div><div className="level-select"><label htmlFor="declaration-rule"><Crown size={14} /> 入玉宣言</label><select id="declaration-rule" value={ruleSetting} onChange={e => { const rule = e.target.value as DeclarationRule; setRuleSetting(rule); if (game.history.length === 0 && game.result === "playing") setGame(prev => ({ ...prev, declarationRule: rule })); }}><option value="jsa">連盟規則（31点）</option><option value="amateur27">27点法</option></select>{ruleSetting !== gameRule && <small className="rule-note">この対局は{gameRule === "jsa" ? "連盟規則" : "27点法"}。次の対局から変わります。</small>}</div></section>
                 {chatPanel(true)}
                 <button className="small-lesson-card" onClick={() => setView("learn")}><span className="mini-lesson-icon"><BookOpen size={20} /></span><span><strong>教材で、一手を磨く</strong><small>{completed.length} / {LESSONS.length} レッスン修了</small></span><ChevronRight size={17} /><span className="mini-progress" style={{ width: `${(completed.length / LESSONS.length) * 100}%` }} /></button>
               </aside>
@@ -366,6 +398,7 @@ export default function RivalApp() {
           {view === "learn" && <>
             <div className="page-header"><div><p className="eyebrow"><span>―</span> STUDY / 学び</p><h1>将棋を、深く知る。</h1><p>駒の動きから戦型の構想へ。初めの一手を丁寧に。</p></div><div className="header-stats"><span><Check size={15} /> {completed.length} / {LESSONS.length} 修了</span></div></div>
             <div className="learning-progress"><div><span>YOUR PROGRESS</span><strong>基礎コース</strong></div><div className="progress-track"><span style={{ width: `${(completed.length / LESSONS.length) * 100}%` }} /></div><strong>{Math.round(completed.length / LESSONS.length * 100)}%</strong></div>
+            {todayPlan.length > 0 && <section className="panel daily-plan"><div className="daily-plan-head"><strong>今日の課題</strong><small>復習・苦手・新しいレッスンから最大3問。記録はこの端末にだけ保存されます。</small></div><div className="daily-plan-list">{todayPlan.map(item => { const index = LESSONS.findIndex(l => l.id === item.lessonId); const l = LESSONS[index]; return <button key={item.lessonId} type="button" onClick={() => chooseLesson(index)} className={`daily-plan-item plan-${item.reason}`}><span>{item.reason === "review" ? "復習" : item.reason === "weak" ? "苦手" : "新しい"}</span><strong>{l.title}</strong><ChevronRight size={15} /></button>; })}</div><p className="daily-plan-note">復習は同じ問題の解き直しです（仮の仕組み）。初見の練習問題は準備中です。</p></section>}
             <div className="learn-layout"><section className="panel lesson-list-panel"><div className="list-heading"><h2>学びの道のり</h2><p>レッスンを選んで始めよう</p></div><div className="lesson-list">
               {LESSONS.map((item, index) => <button key={item.id} onClick={() => chooseLesson(index)} className={`lesson-item ${lessonIndex === index ? "lesson-selected" : ""}`}><span className={`lesson-index ${completed.includes(item.id) ? "lesson-done" : ""}`}>{completed.includes(item.id) ? <Check size={15} /> : `${index + 1}`}</span><span className="lesson-info"><small>STAGE {item.stage} · {item.category}</small><strong>{item.title}</strong><span>{item.summary}</span></span><ChevronRight size={16} /></button>)}
             </div><div className="roadmap-heading"><Layers3 size={17} /> この先の学び <span>COMING SOON</span></div><div className="roadmap-list">{ROADMAP.map(item => <div className="roadmap-item" key={item.stage}><span>{item.stage}</span><div><strong>{item.title}</strong><small>{item.summary}</small></div><span className="roadmap-lock">準備中</span></div>)}</div></section>

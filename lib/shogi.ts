@@ -22,6 +22,13 @@ export type Game = {
    * existed still load; for those, counting starts from the loaded position.
    */
   positionLog?: PositionRecord[];
+  /**
+   * Entering-king declaration rule, fixed when the game starts so it cannot change
+   * mid-game. Optional for games saved before it existed; those use "jsa".
+   */
+  declarationRule?: DeclarationRule;
+  /** Set when the game ended by an entering-king declaration. */
+  declaration?: DeclarationCheck;
 };
 
 export const PIECE_NAMES: Record<Kind, string> = {
@@ -45,14 +52,14 @@ function put(board: Game["board"], r: number, c: number, kind: Kind, owner: Side
   board[r][c] = { kind, owner, promoted: false };
 }
 
-export function initialGame(): Game {
+export function initialGame(declarationRule: DeclarationRule = "jsa"): Game {
   const board = blankBoard();
   const rank: Kind[] = ["KY", "KE", "GI", "KI", "OU", "KI", "GI", "KE", "KY"];
   rank.forEach((piece, col) => { put(board, 0, col, piece, "white"); put(board, 8, col, piece, "black"); });
   for (let c = 0; c < 9; c++) { put(board, 2, c, "FU", "white"); put(board, 6, c, "FU", "black"); }
   put(board, 1, 1, "HI", "white"); put(board, 1, 7, "KA", "white");
   put(board, 7, 1, "KA", "black"); put(board, 7, 7, "HI", "black");
-  return { board, hands: { black: blankHand(), white: blankHand() }, turn: "black", history: [], result: "playing" };
+  return { board, hands: { black: blankHand(), white: blankHand() }, turn: "black", history: [], result: "playing", declarationRule };
 }
 
 export function puzzleGame(placements: Array<{ r: number; c: number; kind: Kind; owner: Side }>, hands?: Partial<Record<Side, Partial<Hand>>>): Game {
@@ -161,7 +168,7 @@ export function applyMove(game: Game, move: Move): Game {
     board[move.from.r][move.from.c] = null;
     board[move.to.r][move.to.c] = { ...moving, promoted: moving.promoted || !!move.promote };
   }
-  return { board, hands, turn: opponent(side), history: [...game.history, move], lastMove: move, result: "playing" };
+  return { board, hands, turn: opponent(side), history: [...game.history, move], lastMove: move, result: "playing", ...(game.declarationRule ? { declarationRule: game.declarationRule } : {}) };
 }
 
 export function legalMoves(game: Game, side: Side = game.turn, skipDropMate = false): Move[] {
@@ -357,7 +364,7 @@ export function materialPoints(game: Game, side: Side): number {
   return points;
 }
 
-export function checkDeclaration(game: Game, side: Side = game.turn, rule: DeclarationRule = "jsa"): DeclarationCheck {
+export function checkDeclaration(game: Game, side: Side = game.turn, rule: DeclarationRule = declarationRuleOf(game)): DeclarationCheck {
   let kingInCamp = false, piecesInCamp = 0, points = 0;
   for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) {
     const p = game.board[r][c];
@@ -374,6 +381,43 @@ export function checkDeclaration(game: Game, side: Side = game.turn, rule: Decla
   if (conditions && rule === "jsa") outcome = points >= 31 ? "win" : points >= 24 ? "draw" : "lose";
   if (conditions && rule === "amateur27") outcome = points >= (side === "black" ? 28 : 27) ? "win" : "lose";
   return { rule, side, onTurn, kingInCamp, piecesInCamp, notInCheck, points, outcome };
+}
+
+export function declarationRuleOf(game: Game): DeclarationRule { return game.declarationRule ?? "jsa"; }
+
+/** The rival declares only when the declaration wins under the game's fixed rule (ADR-011). */
+export function shouldDeclare(game: Game): boolean {
+  return game.result === "playing" && checkDeclaration(game, game.turn).outcome === "win";
+}
+
+export const DECLARATION_RULE_LABELS: Record<DeclarationRule, string> = {
+  jsa: "連盟規則（31点で勝ち・24〜30点は引き分け）",
+  amateur27: "27点法（先手28点・後手27点で勝ち）",
+};
+
+/** One line per condition, so the player can see exactly why a declaration succeeds or fails. */
+export function explainDeclaration(check: DeclarationCheck): { ok: boolean; text: string }[] {
+  const need = check.rule === "jsa" ? "31点以上で勝ち、24〜30点で引き分け" : `${check.side === "black" ? 28 : 27}点以上で勝ち`;
+  return [
+    { ok: check.onTurn, text: check.onTurn ? "自分の手番である" : "自分の手番でない（宣言は手番で行う）" },
+    { ok: check.kingInCamp, text: check.kingInCamp ? "玉が敵陣（相手側の3段）に入っている" : "玉が敵陣（相手側の3段）に入っていない" },
+    { ok: check.piecesInCamp >= 10, text: `敵陣にある自分の駒（玉を除く）: ${check.piecesInCamp}枚（10枚以上が必要）` },
+    { ok: check.notInCheck, text: check.notInCheck ? "王手がかかっていない" : "王手がかかっている（王手中は宣言できない）" },
+    { ok: check.outcome !== "lose", text: `点数（持ち駒＋敵陣の駒。飛・角5点、他1点）: ${check.points}点（${need}）` },
+  ];
+}
+
+/**
+ * Declare entering-king for the side to move.
+ * - "match": the result follows the rule; a declaration that fails any condition loses.
+ * - "practice": the game continues unchanged and the caller shows `reasons` as feedback.
+ */
+export function declareEntering(game: Game, mode: "match" | "practice" = "match"): { game: Game; check: DeclarationCheck; reasons: { ok: boolean; text: string }[] } {
+  const check = checkDeclaration(game, game.turn);
+  const reasons = explainDeclaration(check);
+  if (mode === "practice" || game.result !== "playing") return { game, check, reasons };
+  const result: Game["result"] = check.outcome === "win" ? game.turn : check.outcome === "draw" ? "draw" : opponent(game.turn);
+  return { game: { ...game, result, declaration: check }, check, reasons };
 }
 
 export function matchMove(a: Move, b: Move) {

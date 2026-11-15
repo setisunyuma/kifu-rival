@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyMove, checkDeclaration, declareEntering, explainDeclaration, fromSfen, shouldDeclare, Game, initialGame, JISHOGI_MOVE_LIMIT, materialPoints, validatePosition, isInCheck, Kind, legalMoves, playMove, puzzleGame, Side, toSfen, usi } from "../lib/shogi";
-import { LESSONS } from "../lib/lessons";
+import { applyMove, opponent, checkDeclaration, declareEntering, explainDeclaration, fromSfen, shouldDeclare, Game, initialGame, JISHOGI_MOVE_LIMIT, materialPoints, validatePosition, isInCheck, Kind, legalMoves, playMove, puzzleGame, Side, toSfen, usi } from "../lib/shogi";
+import { LESSONS, SKILLS, SkillId } from "../lib/lessons";
 
 test("starting position has the right number of pieces and legal pawn moves", () => {
   const g = initialGame();
@@ -428,4 +428,49 @@ test("the rival declares only when the declaration wins", () => {
   assert.equal(shouldDeclare(amateur), true);
   assert.equal(shouldDeclare(mirrored(win)), true, "works for gote (the rival's side)");
   assert.equal(shouldDeclare(initialGame()), false);
+});
+
+// ---------------------------------------------------------------------------
+// KIF-031 lesson quality gate (docs/CURRICULUM.md §4, layers L0-L2).
+// ---------------------------------------------------------------------------
+
+test("skill map: every prerequisite exists and the graph has no cycles", () => {
+  const ids = Object.keys(SKILLS) as SkillId[];
+  for (const id of ids) for (const req of SKILLS[id].requires) assert.ok(req in SKILLS, `${id} requires unknown ${req}`);
+  const state = new Map<SkillId, "visiting" | "done">();
+  const visit = (id: SkillId, path: SkillId[]) => {
+    if (state.get(id) === "done") return;
+    assert.notEqual(state.get(id), "visiting", `cycle: ${[...path, id].join(" -> ")}`);
+    state.set(id, "visiting");
+    for (const req of SKILLS[id].requires) visit(req, [...path, id]);
+    state.set(id, "done");
+  };
+  for (const id of ids) visit(id, []);
+});
+
+test("L0: every lesson has a unique id, known skills and original provenance", () => {
+  assert.equal(new Set(LESSONS.map(l => l.id)).size, LESSONS.length);
+  for (const l of LESSONS) {
+    assert.ok(l.skills.length > 0, `${l.id}: no skill`);
+    for (const s of l.skills) assert.ok(s in SKILLS, `${l.id}: unknown skill ${s}`);
+    assert.equal(l.source.kind, "original", `${l.id}: only original problems are allowed`);
+    assert.ok(l.source.author && l.source.method, `${l.id}: provenance incomplete`);
+  }
+});
+
+test("L1/L2: every lesson position is valid and its answer does what the lesson claims", () => {
+  for (const l of LESSONS) {
+    const g = l.setup();
+    assert.deepEqual(validatePosition(g), [], `${l.id}: invalid position`);
+    const move = legalMoves(g).find(m => usi(m) === l.answer);
+    assert.ok(move, `${l.id}: answer ${l.answer} is not legal`);
+    const next = playMove(g, move!);
+    if (l.verify === "capture") assert.ok(g.board[move!.to.r][move!.to.c]?.owner === opponent(g.turn), `${l.id}: answer does not capture`);
+    if (l.verify === "check") assert.ok(isInCheck(next, next.turn), `${l.id}: answer does not give check`);
+    if (l.verify === "mate-in-1") {
+      assert.equal(next.result, g.turn, `${l.id}: answer does not mate`);
+      const mates = legalMoves(g).filter(m => playMove(g, m).result === g.turn).map(usi).sort();
+      assert.deepEqual(mates, [l.answer, ...(l.alsoMates ?? [])].sort(), `${l.id}: unlisted alternative mates`);
+    }
+  }
 });

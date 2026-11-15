@@ -149,3 +149,11 @@
 - Base commit: `53557f6`
 - Changes: 規則を対局開始時に`Game.declarationRule`へ確定、宣言・説明・AI判断の関数、宣言ボタンと確認パネル、次の対局の規則設定（localStorageの任意キー`declarationRule`、旧データはそのまま読める）。D1・APIは未変更（対局結果は既存の`black/white/draw`で保存）。
 - Validation: `test:unit` 45/45 PASS。Chromium 375×812で、敵陣入玉の保存局面から宣言の確認→引き分け終局→記録保存を確認。iPhone実機は未確認。
+
+## 2026-11-15 — KIF-030/031 教材の技能マップと品質検証（P1）
+
+- Actor: Claude（Claude Codeクラウド）
+- Base commit: `aa951d4`（PR #13のsquash後の`main`。PR #13は無人マージ済み）
+- Changes: `lib/lessons.ts`に技能マップ`SKILLS`と教材メタデータ（技能・検証種別・出典）を追加。教材の文面・盤面・IDは不変。品質検証テスト3件（全48件PASS）、ミューテーション3種を検出。
+- Finding: ユーザーの参考指示書が前提とする「初期教材10件」「日課出題」「段階解放」「PR #21」はGitHubの現物に存在しない。ChatGPT Site側に未同期の変更がある場合、`docs/RELEASE.md`の`verify`で検出し、初回リリース前にGitHubへ取り込む必要がある。
+- Design: `docs/CURRICULUM.md`（参考資料の比較・技能マップ・品質保証・優先順位）は自動対象外の新規文書のため、別の手動レビューPRで提案する。

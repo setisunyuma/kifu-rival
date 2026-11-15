@@ -196,8 +196,9 @@ test("gates: a sync touching data-level paths requires a complete approval recor
   assert.equal(evaluateGates({ ...allOk, plan, dryRun: crossCheckDryRun(plan, ">f+++++++++ drizzle/0001_add.sql\n") }).level, "data");
   const base = { ...allOk, plan, dryRun: crossCheckDryRun(plan, ">f+++++++++ drizzle/0001_add.sql\n") };
   assert.equal(evaluateGates(base).passed, false, "no approval");
-  assert.equal(evaluateGates({ ...base, dataApproval: { approvedBy: "user", approvedOn: "2026-11-15", scope: "add table", d1Backup: "", rollbackPlan: "x" } }).passed, false, "incomplete record");
-  const full = evaluateGates({ ...base, dataApproval: { approvedBy: "user", approvedOn: "2026-11-15", scope: "add table", d1Backup: "export taken", rollbackPlan: "restore export" } });
+  assert.equal(evaluateGates({ ...base, dataApproval: { approvedBy: "user", approvedOn: "2026-11-15", scope: "add table", d1Backup: "", deviceDataBackup: "x", rollbackPlan: "x" } }).passed, false, "incomplete record");
+  assert.equal(evaluateGates({ ...base, dataApproval: { approvedBy: "user", approvedOn: "2026-11-15", scope: "add table", d1Backup: "export taken", rollbackPlan: "restore export" } }).passed, false, "device data backup is required too");
+  const full = evaluateGates({ ...base, dataApproval: { approvedBy: "user", approvedOn: "2026-11-15", scope: "add table", d1Backup: "export taken", deviceDataBackup: "exported JSON", rollbackPlan: "restore export" } });
   assert.equal(full.passed, true);
   assert.match(full.manual[0].gate, /not verified/);
 });
@@ -206,7 +207,7 @@ test("gates: a sync touching data-level paths requires a complete approval recor
 // Review of PR #9, round 4: data changes must not bypass the approval gate by content,
 // and nothing may be deleted or overwritten without being verified.
 // ---------------------------------------------------------------------------
-const approval = { approvedBy: "user", approvedOn: "2026-11-15", scope: "rename key", d1Backup: "n/a (device data)", rollbackPlan: "migrate back" };
+const approval = { approvedBy: "user", approvedOn: "2026-11-15", scope: "rename key", d1Backup: "n/a (device data)", deviceDataBackup: "exported JSON on the device", rollbackPlan: "migrate back" };
 
 test("content check: storage key changes and new destructive storage calls are data changes", () => {
   assert.equal(storageChange('const STORAGE_KEY = "kifu-rival.v1";', 'const STORAGE_KEY = "kifu-rival.v2";').changed, true);
@@ -281,7 +282,7 @@ test("storage check: clear with spaces or a line break before the parenthesis is
 test("storage check: removeItem(STORAGE_KEY) -> clear() with the same count is a data change", () => {
   const r = storageChange(BEFORE_RM, AFTER_CLEAR);
   assert.equal(r.changed, true);
-  assert.match(r.reasons.join(" "), /localStorage\.clear\(\)/);
+  assert.match(r.reasons.join(" "), /localStorage \. clear \( \)/);
 });
 
 test("storage check: UI-only changes and whitespace-only edits of storage code are not data", () => {
@@ -295,6 +296,15 @@ test("storage check: comments that mention storage are not code", () => {
   assert.equal(storageChange("const u = 'https://x';", "const u = 'https://x'; localStorage.clear();").changed, true, "URLs do not hide code after them");
 });
 
+test("storage check: string contents are kept (spaces and // inside strings)", () => {
+  assert.equal(storageChange('localStorage.getItem("lesson history");', 'localStorage.getItem("lessonhistory");').changed, true, "different keys stay different");
+  const before = 'const assetRoot = "//cdn.example";\n';
+  const r = storageChange(before, 'const assetRoot = "//cdn.example"; window.localStorage.clear();\n');
+  assert.equal(r.changed, true, "// inside a string is not a comment");
+  assert.match(r.reasons.join(" "), /clear/);
+  assert.equal(storageChange('const s = "a ; b"; localStorage.getItem(K);', 'const s = "a ; b";\nlocalStorage.getItem( K );').changed, false, "formatting only");
+});
+
 test("storage check: a storage statement whose effect cannot be judged is still data", () => {
   assert.equal(storageChange("localStorage.setItem(KEY, JSON.stringify(a));", "localStorage.setItem(KEY, JSON.stringify(b));").changed, true);
 });
@@ -302,6 +312,30 @@ test("storage check: a storage statement whose effect cannot be judged is still 
 const RELEASE = resolve("scripts/release.mjs");
 const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 const run = (cwd: string, ...args: string[]) => spawnSync(process.execPath, [RELEASE, ...args], { cwd, encoding: "utf8" });
+
+const STRING_CASES: [string, string, string][] = [
+  ["spaces inside a key", 'export const load = () => window.localStorage.getItem("lesson history");\n', 'export const load = () => window.localStorage.getItem("lessonhistory");\n'],
+  ["// inside a string", 'export const assetRoot = "//cdn.example";\n', 'export const assetRoot = "//cdn.example";\nwindow.localStorage.clear();\n'],
+  ["// inside a string, same line", 'export const assetRoot = "//cdn.example";\n', 'export const assetRoot = "//cdn.example"; window.localStorage.clear();\n'],
+];
+
+test("release:plan (real git diff): string-content cases are data", () => {
+  for (const [name, before, after] of STRING_CASES) {
+    const repo = mkdtempSync(join(tmpdir(), "kifu-plan-s-"));
+    try {
+      git(repo, "init", "-q"); git(repo, "config", "user.email", "t@example.com"); git(repo, "config", "user.name", "t");
+      mkdirSync(join(repo, "lib"));
+      writeFileSync(join(repo, "lib", "store.ts"), before); git(repo, "add", "."); git(repo, "commit", "-qm", "a");
+      const base = git(repo, "rev-parse", "HEAD");
+      writeFileSync(join(repo, "lib", "store.ts"), after); git(repo, "commit", "-qam", "b");
+      const r = run(repo, "plan", "--base", base);
+      assert.equal(r.status, 2, `${name}: ${r.stdout}${r.stderr}`);
+      assert.match(r.stdout, /level=data/, name);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }
+});
 
 test("release:plan (real git diff) classifies removeItem -> clear as data and writes the plan", () => {
   const repo = mkdtempSync(join(tmpdir(), "kifu-plan-"));
@@ -324,31 +358,42 @@ test("release:plan (real git diff) classifies removeItem -> clear as data and wr
   }
 });
 
-test("preflight (real files): a same-count swap to clear() stops without approval even when every other gate passes", () => {
+function preflightCase(siteText: string, ghText: string) {
   const dir = mkdtempSync(join(tmpdir(), "kifu-pre-"));
   try {
     const gh = join(dir, "gh"), site = join(dir, "site");
     for (const d of [gh, site]) mkdirSync(join(d, "app"), { recursive: true });
-    writeFileSync(join(gh, "app", "store.ts"), AFTER_CLEAR); writeFileSync(join(site, "app", "store.ts"), BEFORE_RM);
-    const files = { "app/store.ts": sha256(AFTER_CLEAR) };
-    writeFileSync(join(dir, "release.json"), JSON.stringify({ schema: 1, repository: "t", commit: "c1", files }));
+    writeFileSync(join(gh, "app", "store.ts"), ghText); writeFileSync(join(site, "app", "store.ts"), siteText);
+    writeFileSync(join(dir, "release.json"), JSON.stringify({ schema: 1, repository: "t", commit: "c1", files: { "app/store.ts": sha256(ghText) } }));
     writeFileSync(join(dir, "plan.json"), JSON.stringify({ head: "c1", level: "app" }));
-    writeFileSync(join(dir, "dec.json"), JSON.stringify([{ path: "app/store.ts", action: "overwrite", siteSha256: sha256(BEFORE_RM), reason: "r", decidedBy: "u" }]));
+    writeFileSync(join(dir, "dec.json"), JSON.stringify([{ path: "app/store.ts", action: "overwrite", siteSha256: sha256(siteText), reason: "r", decidedBy: "u" }]));
     writeFileSync(join(dir, "dry.txt"), ">f.st...... app/store.ts\n");
     execFileSync("tar", ["-czf", join(dir, "backup.tgz"), "-C", site, "."]);
     assert.equal(run(dir, "snapshot", "--root", site, "--out", join(dir, "snap.json")).status, 0);
     const args = ["preflight", join(dir, "release.json"), "--root", site, "--github-root", gh, "--release-plan", join(dir, "plan.json"),
       "--decisions", join(dir, "dec.json"), "--rsync-dry-run", join(dir, "dry.txt"), "--backup-snapshot", join(dir, "snap.json"), "--backup-archive", join(dir, "backup.tgz")];
-    const stop = run(dir, ...args);
-    assert.equal(stop.status, 3, stop.stdout);
-    assert.match(stop.stdout, /level of this release: data/);
-    assert.match(stop.stdout, /\[NG\] data change approval/);
-    assert.doesNotMatch(stop.stdout, /\[NG\] (release plan|GitHub checkout|no symlinks|file differences|rsync|backup)/, "only the approval gate is missing");
     writeFileSync(join(dir, "appr.json"), JSON.stringify(approval));
-    const pass = run(dir, ...args, "--data-approval", join(dir, "appr.json"));
-    assert.equal(pass.status, 0, pass.stdout);
-    assert.match(pass.stdout, /GATES PASSED/);
+    return { stop: run(dir, ...args), pass: run(dir, ...args, "--data-approval", join(dir, "appr.json")) };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+test("preflight (real files): storage changes stop without approval even when every other gate passes", () => {
+  for (const [name, site, gh] of [["removeItem -> clear", BEFORE_RM, AFTER_CLEAR], ...STRING_CASES] as [string, string, string][]) {
+    const { stop, pass } = preflightCase(site, gh);
+    assert.equal(stop.status, 3, `${name}: ${stop.stdout}`);
+    assert.match(stop.stdout, /level of this release: data/, name);
+    assert.match(stop.stdout, /\[NG\] data change approval/, name);
+    assert.doesNotMatch(stop.stdout, /\[NG\] (release plan|GitHub checkout|no symlinks|file differences|rsync|backup)/, `${name}: only the approval gate is missing`);
+    assert.equal(pass.status, 0, `${name}: ${pass.stdout}`);
+    assert.match(pass.stdout, /GATES PASSED/, name);
+  }
+});
+
+test("preflight (real files): a UI-only change is not data and passes without approval", () => {
+  const ui = (label: string) => KEY + `export const Title = () => "${label}";\nwindow.localStorage.getItem(STORAGE_KEY);\n`;
+  const { stop } = preflightCase(ui("棋友"), ui("棋友 KIYU"));
+  assert.equal(stop.status, 0, stop.stdout);
+  assert.match(stop.stdout, /level of this release: app/);
 });

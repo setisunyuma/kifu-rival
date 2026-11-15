@@ -15,6 +15,8 @@ const sources = ["tests/shogi.spec.ts", "tests/rival-chat.spec.ts", "tests/guard
 const bundlerArguments = [
   ...sources.map(file => resolve(root, file)),
   "--bundle", "--platform=node", "--format=esm", `--outdir=${output}`,
+  // The TypeScript parser (used by scripts/release.mjs) is loaded from node_modules, not bundled.
+  "--external:typescript",
 ];
 
 execFileSync(esbuild, bundlerArguments, { cwd: root, stdio: "inherit" });

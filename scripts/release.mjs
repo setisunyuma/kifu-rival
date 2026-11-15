@@ -29,6 +29,7 @@ import { lstatSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
+import ts from "typescript";
 
 export const MANIFEST_SCHEMA = 1;
 
@@ -94,29 +95,59 @@ export function classifyChanges(changes, signals = {}) {
 export const SERVED_CODE = p => /^(app|lib|components|hooks)\/.+\.(ts|tsx|js|jsx|mjs)$/.test(p);
 
 /**
- * Storage facts of a source text. Whitespace (spaces, tabs, newlines) is removed first,
- * so `localStorage .clear ()` or a call split over lines is seen like `localStorage.clear()`.
- * - keys: storage key literals (STORAGE_KEY = "...", getItem/setItem/removeItem("..."), kifu-rival.vN)
- * - statements: every statement that touches localStorage/sessionStorage/indexedDB, cut at the
- *   next ";" and compared as a multiset. Any added, removed or changed storage statement counts,
- *   including a same-count swap such as removeItem(STORAGE_KEY) -> clear().
- * Limits (documented in docs/RELEASE.md): storage reached through an alias (e.g. a variable
- * holding window.localStorage passed elsewhere) is only seen where the name itself appears.
+ * Tokens of a source text, from the TypeScript parser (already a dependency). Comments are
+ * trivia and never become tokens; string and template literals keep their exact text, so
+ * "lesson history" and "lessonhistory" stay different and "//cdn" inside a string is not a
+ * comment. Formatting whitespace between tokens disappears. Parsed as TSX, which accepts
+ * TypeScript, JavaScript and JSX source.
+ */
+export function sourceTokens(text) {
+  const sf = ts.createSourceFile("x.tsx", text, ts.ScriptTarget.Latest, false, ts.ScriptKind.TSX);
+  const out = [];
+  const walk = node => {
+    const kids = node.getChildren(sf);
+    if (kids.length === 0) { const t = node.getText(sf); if (t && node.kind !== ts.SyntaxKind.EndOfFileToken) out.push(t); return; }
+    for (const k of kids) walk(k);
+  };
+  walk(sf);
+  return out;
+}
+
+const STORAGE_ROOTS = new Set(["localStorage", "sessionStorage", "indexedDB"]);
+const isStringToken = t => /^["'`]/.test(t);
+const unquote = t => t.slice(1, -1);
+
+/**
+ * Storage facts of a source text, compared token by token:
+ * - keys: storage key literals (STORAGE_KEY = "...", getItem/setItem/removeItem("..."), and any
+ *   string literal containing kifu-rival.vN)
+ * - statements: from each localStorage/sessionStorage/indexedDB token up to the next ";" token,
+ *   joined as tokens (so formatting and comments do not matter, string contents do). Compared
+ *   as a multiset: added, removed or changed storage statements all count, including a
+ *   same-count swap such as removeItem(STORAGE_KEY) -> clear().
+ * Limits (docs/RELEASE.md): storage reached through an alias variable is seen only where the
+ * names above appear; a statement without ";" runs to the next ";".
  */
 function storageFacts(text) {
   if (text === null || text === undefined) return { keys: new Set(), statements: [] };
-  // Comments are not code: drop /* ... */ blocks and // line comments (not "://" in URLs).
-  const code = text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
-  const t = code.replace(/\s+/g, "");
+  const tok = sourceTokens(text);
   const keys = new Set();
-  for (const m of t.matchAll(/STORAGE_KEY=["'`]([^"'`]+)["'`]/g)) keys.add(m[1]);
-  for (const m of t.matchAll(/(?:local|session)Storage\.(?:getItem|setItem|removeItem)\(["'`]([^"'`]+)["'`]/g)) keys.add(m[1]);
-  for (const m of t.matchAll(/kifu-rival\.v\d+/g)) keys.add(m[0]);
-  const statements = [...t.matchAll(/(?:localStorage|sessionStorage|indexedDB)[^;]*/g)].map(m => m[0]).sort();
-  return { keys, statements };
+  for (let i = 0; i < tok.length; i++) {
+    if (tok[i] === "STORAGE_KEY" && tok[i + 1] === "=" && isStringToken(tok[i + 2] ?? "")) keys.add(unquote(tok[i + 2]));
+    if (["getItem", "setItem", "removeItem"].includes(tok[i]) && tok[i + 1] === "(" && isStringToken(tok[i + 2] ?? "")) keys.add(unquote(tok[i + 2]));
+    if (isStringToken(tok[i])) for (const m of tok[i].matchAll(/kifu-rival\.v\d+/g)) keys.add(m[0]);
+  }
+  const statements = [];
+  for (let i = 0; i < tok.length; i++) {
+    if (!STORAGE_ROOTS.has(tok[i])) continue;
+    let j = i;
+    while (j < tok.length && tok[j] !== ";") j++;
+    statements.push(tok.slice(i, j).join(" "));
+  }
+  return { keys, statements: statements.sort() };
 }
 
-const DESTRUCTIVE = /(?:local|session)Storage\.(?:removeItem|clear)\(|indexedDB\.deleteDatabase\(/;
+const DESTRUCTIVE = /^(?:localStorage|sessionStorage) \. (?:removeItem|clear) \(|^indexedDB \. deleteDatabase \(/;
 
 /**
  * Content check for on-device data (localStorage etc.). Changed storage keys, or any change
@@ -254,7 +285,7 @@ export function syncLevel(plan) {
   return classifyChanges(changes).level;
 }
 
-const APPROVAL_FIELDS = ["approvedBy", "approvedOn", "scope", "d1Backup", "rollbackPlan"];
+const APPROVAL_FIELDS = ["approvedBy", "approvedOn", "scope", "d1Backup", "deviceDataBackup", "rollbackPlan"];
 
 /**
  * Combine every pre-sync gate. `automated` gates are verified by this tool; `manual` gates

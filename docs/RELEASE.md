@@ -35,10 +35,10 @@ npm run release:plan -- --base <released> --out outputs/plan-<short-sha>.json
 
 ### 保存処理の変更の検出（`release:plan`と`preflight`で共通）
 
-- 対象: 配信コードの中の`localStorage`・`sessionStorage`・`indexedDB`を含む文と、保存キー（`STORAGE_KEY = "..."`、`getItem`/`setItem`/`removeItem`の文字列キー、`kifu-rival.vN`）。
-- 比較の前にコメントを除き、空白・改行を取り除く。`localStorage .clear ()`や改行をはさんだ呼び出しも同じ文として扱う。
-- 保存に関わる文を引数まで含めて1件ずつ比べ、追加・削除・変更があれば`data`。`removeItem(STORAGE_KEY)`から`clear()`への同数の置き換えも検出する。影響を判定できない変更（保存する内容の変更など）も**通常の変更に落とさず`data`**とする。保存処理に触れない画面の変更や、空白だけの変更は`data`にしない。
-- 限界: 保存APIを別名の変数に入れて別の場所で使う書き方は、その名前（`localStorage`等）が現れる箇所しか検出できない。棋友のコードではこの書き方をしない。
+- 方法: 依存関係にあるTypeScriptのパーサーでコードを字句に分ける。コメントは字句にならず、文字列とテンプレートの中身はそのまま残り、字句の間の書式（空白・改行）は無視される。`getItem("lesson history")`と`getItem("lessonhistory")`は別のキーとして扱い、`"//cdn.example"`の`//`はコメントとみなさない。
+- 対象: `localStorage`・`sessionStorage`・`indexedDB`の字句から次の`;`までの文と、保存キー（`STORAGE_KEY = "..."`、`getItem`/`setItem`/`removeItem`の文字列キー、`kifu-rival.vN`を含む文字列）。
+- 判定: 保存に関わる文を字句の並びとして1件ずつ比べ、追加・削除・変更があれば`data`。`removeItem(STORAGE_KEY)`から`clear()`への同数の置き換えも検出する。影響を判定できない変更（保存する内容の変更など）も**通常の変更に落とさず`data`**とする。保存処理に触れない画面の変更や、書式だけの変更は`data`にしない。
+- 保証しないこと: 保存APIを別名の変数に入れて別の場所で使う書き方は、上の名前が現れる箇所しか検出できない（棋友のコードではこの書き方をしない）。`;`のない文は次の`;`までを1つの文として扱う。
 
 判定は**安全側**に倒す。分類規則に載っていない新しいファイルは`runtime`として確認対象にする。`package.json`は、依存関係・`engines`等が不変で、かつ変更されたスクリプトがすべて管理用（`lint`・`test`・`test:*`・`ledger:check`・`public:check`・`release:*`）の場合だけ`none`になる。
 
@@ -89,7 +89,7 @@ node scripts/release.mjs preflight outputs/release-<short-sha>.json --root <site
    | 自動 | rsyncの空実行が予測（追加・上書き・削除）と一致する | ツールが検証 |
    | 自動 | バックアップのスナップショットが、今のSiteと一致する（バックアップ後の変更を検出） | ツールが検証 |
    | 自動 | バックアップのアーカイブを一時ディレクトリに展開すると、スナップショットと一致する | ツールが検証 |
-   | 手動 | このリリースの判定が`data`の場合、承認記録（`approvedBy`、`approvedOn`、`scope`、`d1Backup`、`rollbackPlan`）がそろっている。判定は「同期するパス」「Site側とGitHub側の中身の比較（保存キー等）」「`release:plan`の判定」のうち最も重いもので、どれか1つでも`data`なら必要。迂回する指定はない | **人**。ツールは記録がそろっているかだけを確認し、内容の真偽は確認しない |
+   | 手動 | このリリースの判定が`data`の場合、承認記録（`approvedBy`、`approvedOn`、`scope`、`d1Backup`、`deviceDataBackup`、`rollbackPlan`）がそろっている。判定は「同期するパス」「Site側とGitHub側の中身の比較（保存キー等）」「`release:plan`の判定」のうち最も重いもので、どれか1つでも`data`なら必要。迂回する指定はない | **人**。ツールは記録がそろっているかだけを確認し、内容の真偽は確認しない |
    | 手動（ツール外） | Site versionを控えた、D1のバックアップを取った（`data`の場合）、デプロイ後のPrivate設定・iPhone確認 | **人**。§0・§4・§5で記録する |
 
 6. **同期方法の事前確認とゲートの実行**:
@@ -145,6 +145,12 @@ node scripts/release.mjs preflight outputs/release-<short-sha>.json --root <site
 - **localStorageの互換性**: ロールバックしても端末内の記録を壊さないよう、リリースは**旧版が新しい保存データを読めること**を守る。フィールドの追加は任意フィールドに限り（例: `Game.positionLog`）、キー`kifu-rival.v1`や既存フィールドの意味は変えない。変える場合は`data`扱いとし、移行と旧版への戻し方を先に設計する。
 
 ## データ（`data`判定のリリース）
+
+**端末内データ（localStorage）はソースのtarバックアップでは保全できない**。対局記録・教材の回答記録・途中の盤面は利用者のブラウザの中にあり、Siteのソースとは別の場所にある。`data`判定のリリースの前に、承認記録の`deviceDataBackup`へ、どの端末のどのブラウザのデータをどう保全したかを書く。
+
+- 予定する方法（未実装、`KIF-050`）: アプリ内の「記録を書き出す（JSONファイル）」と「書き出したファイルから戻す」。リリース前に利用者が書き出し、旧版へ戻した場合は書き出したファイルから戻す。
+- 実装されるまでは、`data`判定のリリースを行わない。どうしても必要な場合の代替（Mac＋SafariのWebインスペクタでlocalStorageを書き出す等）は、ユーザーと手順を決めてから行う。
+
 
 以下がすべてそろうまで配備しない。
 

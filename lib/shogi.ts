@@ -480,3 +480,55 @@ export function chooseRivalMove(game: Game, level = 2): Move | undefined {
   const viable = deeper.slice(0, level >= 4 ? 1 : level === 3 ? 2 : 4);
   return viable[Math.floor(Math.random() * viable.length)].move;
 }
+
+// ---------------------------------------------------------------------------
+// Tsume (mating problem) solver for lesson verification (KIF-031, quality layer L2).
+// Tsume conventions: the attacker (side to move) must give check on every move,
+// the defender plays any legal move, uchifuzume is illegal (legalMoves already
+// excludes it). Exhaustive search: intended for short problems (1/3/5 plies).
+// ---------------------------------------------------------------------------
+
+/** True if the side to move can force mate within `plies` (odd) giving check every move. */
+export function forcesMate(game: Game, plies: number): boolean {
+  if (plies < 1 || game.result !== "playing") return false;
+  for (const move of legalMoves(game)) {
+    const next = applyMove(game, move);
+    if (!isInCheck(next, next.turn)) continue;
+    const replies = legalMoves(next);
+    if (replies.length === 0) return true;
+    if (plies >= 3 && replies.every(reply => forcesMate(applyMove(next, reply), plies - 2))) return true;
+  }
+  return false;
+}
+
+/**
+ * Every first move (USI) that forces mate within `plies` plies under tsume rules.
+ * More than one entry means the problem has alternative solutions (別解) at move 1.
+ */
+export function mateMoves(game: Game, plies: number): string[] {
+  if (plies < 1 || game.result !== "playing") return [];
+  const out: string[] = [];
+  for (const move of legalMoves(game)) {
+    const next = applyMove(game, move);
+    if (!isInCheck(next, next.turn)) continue; // tsume: every attacking move is a check
+    const replies = legalMoves(next);
+    if (replies.length === 0) { out.push(usi(move)); continue; }
+    if (plies < 3) continue;
+    if (replies.every(reply => forcesMate(applyMove(next, reply), plies - 2))) out.push(usi(move));
+  }
+  return out;
+}
+
+/**
+ * Tsume convention: the defender holds every piece not on the board and not in the
+ * attacker's hand (玉方持駒は残り全部). Returns a copy with the defender's hand filled.
+ */
+export function withRemainingPiecesToDefender(game: Game): Game {
+  const defender = opponent(game.turn);
+  const used: Record<HandKind, number> = { FU: 0, KY: 0, KE: 0, GI: 0, KI: 0, KA: 0, HI: 0 };
+  for (const row of game.board) for (const p of row) if (p && p.kind !== "OU") used[p.kind as HandKind]++;
+  for (const kind of HAND_ORDER) used[kind] += game.hands[game.turn][kind];
+  const hand = { ...game.hands[defender] };
+  for (const kind of HAND_ORDER) hand[kind] = Math.max(0, PIECE_LIMITS[kind] - used[kind]);
+  return { ...game, hands: { ...game.hands, [defender]: hand } };
+}

@@ -170,3 +170,9 @@ Macがない、端末の設定で調査できない、対象のアプリ内ブ�
 初回Site配備の前に、実データの退避ファイルを本人の管理下に確保する。配備後は、元の記録が残ること、通常書き出し・確認・復元・再読み込みで件数と盤面が保たれること、復元後の同期停止、意図的な同期再開、保存失敗時の表示を実際の対象端末で確認する。必要な本番操作は、そのリリースで承認された範囲に従う。
 
 自動テストやPCのブラウザ確認を、iPhone実機での保存成功と置き換えない。未実測の項目は台帳に残し、個人データの中身をテスト結果や公開ログへ含めない。
+
+### 実施済みの自動受入確認
+
+PR #22の実装head `e67b3efa5152fa82ff4de7164e1a7d2308586527` で、[Source validation #46](https://github.com/setisunyuma/kifu-rival/actions/runs/43731822780)が成功した。375×812のChromiumで、実ダウンロード、確認後の復元、再読み込み、全項目一致、同期停止の維持、書込み失敗時の元raw保持、破損rawの退避を含む5経路がPASS。個人の記録は使用していない。
+
+再実行は `npm run build` の後、CIと同じPlaywrightを用意して `python tests/browser/backup_learning.py`。合成fixtureの作成、ローカルサーバーの起動・終了、結果・ダウンロードJSON・画面画像の保存まで一括で行う。APIは合成応答に置換し、保存元はテスト専用のlocalhostに固定している。詳細と版は [受入ハーネス](../tests/browser/backup_learning.py) と [CI定義](../.github/workflows/verify.yml) を参照する。

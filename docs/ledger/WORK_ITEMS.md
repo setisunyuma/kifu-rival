@@ -64,26 +64,28 @@
 - Evidence (Claude, 2026-11-15): 机上調査第1回を`docs/ENGINE_INTEGRATION_PLAN.md`に記録。YaneuraOu本家、shielune/YaneuraOu（WASM配布フォーク、Cloudflare Workers用シングルスレッド版あり）、Fairy-Stockfish（公式WASM npm）、Apery Rust、dlshogi、`yaneuraou.wasm`を一次資料で比較。全てGPL-3.0系。評価関数の権利は候補ごとに未確認点が残る。**ビルド・実測・取込みは未実施**。
 - Evidence (Claude, 2026-11-15, 実測第1回): ADR-010の許可に基づきリポジトリ外でYaneuraOu駒得版（`2bc64b4`）とFairy-Stockfish（`014b077`、手作り評価／CC0の将棋NNUE）をビルド・実行し、66局を対局。現行Lv.4は3エンジンに0勝18敗。YaneuraOu駒得版はFairy手作り評価に9勝3敗、Fairy NNUEは両者に12勝0敗。全手を棋友の`legalMoves`で検証して**不正手0件**。速度・メモリ・ブラウザWASM（Chromium）の実測、評価関数の権利（Fairy将棋NNUEは配布ページの記載でCC0、YaneuraOuのNNUEは公開入手経路なし）を`docs/ENGINE_INTEGRATION_PLAN.md`に記録。再現用ハーネスを`tests/engine-bench/`に追加（自作コードのみ、CI対象外）。**iPhone実測と採用判断は未実施**。
 - Evidence (Claude, 2026-11-15, 試作第2回): ADR-011を受けてブラウザWASMを比較。Fairy手作り評価はChromiumで0.1秒に深さ8・1秒で深さ13（約13万局面/秒）、起動1.2秒、JSヒープ10MB。YaneuraOu駒得版はEmscriptenで自前ビルドしリンクまで成功したが、Chromiumでクラッシュ・NodeでUSI応答なし（未解決）。iPhone計測は、ローカルPCの計測サーバーから同じWi-FiのiPhoneで開く方式を推奨（外部公開なし）。詳細は`docs/ENGINE_INTEGRATION_PLAN.md`。
-- Next: (1) YaneuraOu WASMの不具合を上流CIの設定に沿って切り分ける。(2) iPhone用の計測ページとローカル計測サーバーの手順書を用意し、ユーザーに実機計測を依頼する。(3) ブラウザ条件（0.1〜0.5秒）でLv.4・人間らしい制御層の試作と対局テスト。第三者コードの正式取り込み・配布・本番有効化はライセンスと安全性の確認結果を示して改めて承認を得る（ADR-011）。
+- Evidence (ChatGPT, 2026-11-16): リポジトリ外に公式npm `fairy-stockfish-nnue.wasm@1.1.12`（ソース`b2e693ef`、WASMのSHA-256を記録）を取得し、自作アダプターからNode 24.22.1のWASMを実行。1スレッド・Hash16MB・NNUE無効・100ms/手・MultiPV3で、合成3序盤の先後入替え6局は現行Lv.4に6勝0敗、不正手0件。起動中央値827ms、中断は約30ms。Lv.4と同じ計算時間を使った比較ではなく、段級位は推定しない。詳細と一次資料は`docs/ENGINE_INTEGRATION_PLAN.md`、固定結果は`tests/engine-bench/wasm-prototype-results.json`。
+- Next: 動作済みの軽量Fairyを使って新アダプターのPCブラウザ・iPhone測定と対局UI接続へ進む。計測ページとサーバーは作成済み。iPhoneには信頼されたHTTPSとCOOP/COEPが必要で、HTTPのWi-Fi接続だけでは足りない。YaneuraOuのクラッシュ調査は後続とし、正式採用・第三者成果物の配布は`Q-003`・`KIF-024`で残条件とともに判断する。
 
 
 ## KIF-021 — 棋力を上げるエンジン接続試作
-- Status: BACKLOG
+- Status: IN_PROGRESS
 - Priority: P1
-- Owner: Unassigned
+- Owner: ChatGPT
 - Depends: KIF-020, KIF-011
 - Acceptance: 入力局面から検証済み合法手と候補評価を返し、Lv.4が明らかな単純悪手を避ける。低性能環境の遅延・失敗時の振る舞いも測る。
-- Evidence: 未着手。
-- Next: KIF-020で採用した候補で独立アダプターを試作。
+- Evidence: ChatGPT（2026-11-16）が`lib/engine/usi-adapter.ts`に純TypeScriptのUSIアダプターを試作。候補手・全読み筋の合法性、入玉宣言、同じ探索深さのMultiPV、局面と千日手履歴の一致を検証。中断・期限超過・Worker異常でそのインスタンスを終了し、遅延結果を捨てる。外部エンジンを取得しない単体テストと、実際のWASMによる合成6局・中断再起動を確認。`tests/engine-bench/`にNodeの橋渡しとPC用計測ページを追加。
+- Next: 対局UIと接続し、低性能環境・iPhoneで遅延と失敗からの復帰を測る。今回の計測はNode WASMであり、新アダプターのブラウザ実測は未完了。通常のアプリAIはまだ置き換えていない。
 
 ## KIF-022 — 人間らしい適応棋力・レベル評価
-- Status: BACKLOG
+- Status: IN_PROGRESS
 - Priority: P1
-- Owner: Unassigned
+- Owner: ChatGPT
 - Depends: KIF-021
 - Acceptance: 技量帯別の対局成績と指し手品質を計測し、棋風の一貫性を保ちながら人間にあり得るミスをする。各レベルの実力説明は実測に基づく。
 - Evidence: 現4レベルは弱いヒューリスティックと乱数のみ。
-- Next: ユーザーの体感と対局テストに基づく棋力調整仕様を提案。
+- Evidence (ChatGPT, 2026-11-16): `lib/engine/rival-policy.ts`に候補の評価差・攻め／堅実の特徴・再現可能な種から選ぶ独立層を試作。王手中や候補差が大きい場面では損失を許容せず、エンジンの正の詰み評価を保ち、cp候補があれば負の詰み評価を選ばない。候補評価の上限・決定性・詰み評価の扱いを回帰テスト。70/180cp等は仮設定で、実力や人間らしさを校正したものではない。
+- Next: 中盤・終盤を含む局面集で棋風差とミスの質を検証し、練習設定の対局成績とユーザーの体感から調整する。今回の3局面では棋風3種が同じ手を選び、棋風の差の実証には至っていない。
 
 ## KIF-023 — オールラウンドな戦型・棋風
 - Status: BACKLOG

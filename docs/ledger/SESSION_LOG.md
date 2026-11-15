@@ -205,3 +205,15 @@
 - Validation: 単体92/92、lint、型検査、ビルド、公開前・台帳・差分検査PASS。容量レビューで見つかったクラウドの部分反映とAI待機中の古い状態参照を修正。実装head `e67b3efa5152fa82ff4de7164e1a7d2308586527` の [CI 43731822780](https://github.com/setisunyuma/kifu-rival/actions/runs/43731822780)も成功。手元のChromiumは起動制限があるため、GitHubのread-only CIで375×812の実ブラウザ受入試験を実行し、5/5経路がPASS（実操作計11.16秒）。書き出し→復元→再読み込み、不正ファイル/容量不足、空/破損raw、別解とヒント、表示済み旧解析の差替えを確認。合成JSONと画面画像をartifactへ保存し、画像も目視確認した。iPhone/Safari実機の検証とは区別する。
 - Handoff: 新しい実装を重複作成せず、PRの検証結果と未完を確認してから続ける。L3人手レビュー、iPhone実機、実データの初回退避、削除・完全なクラウド同期は未完。第三者エンジン試作は別ブランチで扱う。
 - Boundary: 個人の実データ、Site同期・配備、手動対象PRのマージ、第三者エンジンの正式採用・配布は実施しない。
+
+## 2026-11-16 — KIF-020/021/022 独立USI接続と着手選択の実動試作
+
+- Actor: ChatGPT
+- Base commit: `1ef202d3d9626175cc3e5c8e120d30ed7a54459e`。独立worktreeで実施。
+- Scope: 自作のUSIアダプター・候補手選択層・回帰テストと、リポジトリ外に取得したFairy-Stockfish WASMを使う合成棋譜の計測。第三者のコード・バイナリ・評価関数をコミットしない。
+- Changes: 候補手・全読み筋・入玉宣言・局面履歴を検証する純TypeScriptのUSIアダプター、時間制限・中断時のWorker終了、独立した着手選択層、偽の通信相手を使う回帰テスト、Node WASMとPC用計測ページの自作ハーネスを追加。
+- Measurement: 公式npmのFairy-Stockfish WASM 1.1.12（`b2e693ef`、NNUE無効、1スレッド、Hash16MB、100ms、MultiPV3）と現行Lv.4をNode 24.22.1で合成6局対局し、WASMが6勝、不正手・実行失敗0件。起動中央値827ms、中断約30ms。生の棋譜は一時領域、版・ハッシュ・条件・局別結果・速度の要約は`tests/engine-bench/wasm-prototype-results.json`へ記録。Lv.4の計算時間はより短く、棋力や段級位の校正ではない。
+- Review: 別のエージェントの読取専用レビューで、ブラウザの失敗後に閉じたアダプターを再利用する点と、練習設定がcp候補を残して負の詰み評価へ戻る分岐を発見し、双方を修正。実際の計測ページのコードを偽のDOM/Workerで実行し、通信失敗→新規Workerで成功を確認する回帰を追加した（実ブラウザの性能検証ではない）。
+- Validation: `test:unit` 73/73 PASS（追加11件）、lint・TypeScript・build・ledger・public・`git diff --check` PASS。公開前検査は新規ファイルを含む163追跡ファイルを対象に実施。ESMのWorkerで再確認し、通常開始・任意開始SFENの双方で合法な候補3件を取得した。外部エンジンをCIへ導入する変更はない。
+- Remaining: 新アダプターのPCブラウザとiPhone実測、対局UIへの接続、練習設定・棋風の校正、第三者成果物の正式採用と配布条件。今回のChromiumは起動前にソケット作成を拒否され、環境制限は変更していない。YaneuraOuのクラッシュ原因は未調査のまま。
+- Boundary: 正式採用、サイト配備、実ユーザー棋譜の送信、新規課金は行わない。

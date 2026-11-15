@@ -71,3 +71,11 @@
 - Validation: GitHub APIの`workflow_run`ではPRのhead・base SHA、検証元workflowパス、同一repoを確認でき、PRの現在のtest merge commitとも照合できた。17単体テストはPASS。**本当に無人マージされた事実を確認した**。
 - Remaining: 高リスクPR拒否の実地確認は単体テストのみ。main rulesetはGitHub API上空配列で、GitHub管理画面はログイン要求のため未設定。Claude Codeクラウドからのclone/PR、ChatGPT Sitesへの同期も未確認。Private Siteのアクセス権・DBは変更していない。
 - Next: 本文書・Claude引継ぎ・作業台帳を実施済みの状態に更新し、PRに記録。管理権限のあるGitHubブラウザでmain Rulesetを設定する。
+
+## 2026-11-15 — PR #2の要手動レビュー判定を確認
+
+- Actor: ChatGPT
+- Pull request: [PR #2](https://github.com/setisunyuma/kifu-rival/pull/2) は`AGENTS.md`・`CLAUDE.md`など指示書を含む8件の文書更新、タイトルに`[manual]`。`Source validation`の[run 43697172307](https://github.com/setisunyuma/kifu-rival/actions/runs/43697172307)は成功。
+- Refusal evidence: [Guarded auto-merge run 43697230268](https://github.com/setisunyuma/kifu-rival/actions/runs/43697230268)の実行ログに`Manual review: PR #2: Manual review explicitly requested`と出力され、PRは`merged=false`のまま停止。除外経路を実際に検証。
+- Manual follow-up: 内容とCIを確認し、SHA固定の手動squash mergeを実行。結果コミット`7ca63192dceb91c4b57a677717f376d9c7dd254e`。自動ガードによるマージではない。
+- Remaining: `main` Rulesetは未設定、Claude Codeクラウドからのclone/PR発行は未確認。`KIF-063`はIN_PROGRESSのまま。サイトの非公開設定・デプロイは不変。

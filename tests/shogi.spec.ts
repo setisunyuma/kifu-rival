@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { applyMove, opponent, checkDeclaration, declareEntering, explainDeclaration, fromSfen, shouldDeclare, Game, initialGame, JISHOGI_MOVE_LIMIT, materialPoints, validatePosition, isInCheck, Kind, legalMoves, playMove, puzzleGame, Side, toSfen, usi } from "../lib/shogi";
-import { LESSONS, SKILLS, SkillId } from "../lib/lessons";
+import { dailyPlan, LessonAttempt, lessonStates, LESSONS, practisedSkills, SKILLS, SkillId } from "../lib/lessons";
 
 test("starting position has the right number of pieces and legal pawn moves", () => {
   const g = initialGame();
@@ -473,4 +473,49 @@ test("L1/L2: every lesson position is valid and its answer does what the lesson 
       assert.deepEqual(mates, [l.answer, ...(l.alsoMates ?? [])].sort(), `${l.id}: unlisted alternative mates`);
     }
   }
+});
+
+// ---------------------------------------------------------------------------
+// KIF-032 minimal learning loop (P3/P4).
+// ---------------------------------------------------------------------------
+const day = (n: number) => new Date(Date.UTC(2026, 10, 1 + n, 9)).toISOString();
+const at = (lessonId: string, correct: boolean, n: number): LessonAttempt => ({ lessonId, correct, at: day(n) });
+
+test("a new learner gets three new lessons whose prerequisites are not blocked", () => {
+  const plan = dailyPlan([], new Date(day(0)));
+  assert.deepEqual(plan, [
+    { lessonId: "first-pawn", reason: "new" }, { lessonId: "rook-pawn", reason: "new" }, { lessonId: "gold-step", reason: "new" },
+  ]);
+  assert.ok(!plan.some(p => p.lessonId === "capture-pawn"), "A3 waits until A1 is practised");
+});
+
+test("spaced review: correct answers climb boxes only when due; mistakes drop back and become weak points", () => {
+  let st = lessonStates([at("first-pawn", true, 0)]).get("first-pawn")!;
+  assert.equal(st.box, 1); assert.equal(st.dueAt, day(1));
+  st = lessonStates([at("first-pawn", true, 0), at("first-pawn", true, 0.5)]).get("first-pawn")!;
+  assert.equal(st.box, 1, "re-solving before it is due does not count");
+  st = lessonStates([at("first-pawn", true, 0), at("first-pawn", true, 1)]).get("first-pawn")!;
+  assert.equal(st.box, 2); assert.equal(st.dueAt, day(4));
+  st = lessonStates([at("first-pawn", true, 0), at("first-pawn", true, 1), at("first-pawn", false, 4)]).get("first-pawn")!;
+  assert.equal(st.box, 1);
+
+  const plan = dailyPlan([at("first-pawn", true, 0), at("gold-step", false, 0)], new Date(day(1)));
+  assert.deepEqual(plan.slice(0, 2), [{ lessonId: "first-pawn", reason: "review" }, { lessonId: "gold-step", reason: "weak" }]);
+  assert.equal(plan.length, 3);
+  assert.ok(!dailyPlan([at("first-pawn", true, 0)], new Date(day(0.5))).some(p => p.reason === "review"), "not due yet");
+});
+
+test("practising every A1 lesson twice with a gap unlocks the A3 lesson as new", () => {
+  const a1 = ["first-pawn", "rook-pawn", "gold-step"];
+  const attempts = [...a1.map(id => at(id, true, 0)), ...a1.map(id => at(id, true, 1))];
+  assert.ok(practisedSkills(lessonStates(attempts)).has("A1"));
+  const plan = dailyPlan(attempts, new Date(day(2)));
+  assert.ok(plan.some(p => p.lessonId === "capture-pawn" && p.reason === "new"), JSON.stringify(plan));
+  assert.ok(!dailyPlan(a1.map(id => at(id, true, 0)), new Date(day(0.5))).some(p => p.lessonId === "capture-pawn"));
+});
+
+test("attempts for unknown lessons are ignored and every lesson stays reachable", () => {
+  assert.doesNotThrow(() => dailyPlan([at("no-such-lesson", true, 0)], new Date(day(1))));
+  assert.equal(lessonStates([]).size, LESSONS.length);
+  for (const id of Object.keys(SKILLS) as SkillId[]) assert.ok(SKILLS[id].name);
 });

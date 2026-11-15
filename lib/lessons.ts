@@ -140,3 +140,99 @@ export const ROADMAP = [
   { stage: "05", title: "終盤を磨く", summary: "寄せ・必至・詰将棋・実戦の読み", status: "制作予定" },
   { stage: "06", title: "有段者の研究室", summary: "棋譜研究・戦法別弱点・複雑な局面", status: "制作予定" },
 ];
+
+// ---------------------------------------------------------------------------
+// Learning loop, minimal version (KIF-032 P3/P4; docs/CURRICULUM.md §3).
+// Pure functions over a list of attempts so the loop is fully testable. All
+// numbers below are initial hypotheses to be tuned with real use.
+// ---------------------------------------------------------------------------
+
+/** One answer to a lesson. Stored on the device (localStorage), never sent elsewhere. */
+export type LessonAttempt = { lessonId: string; correct: boolean; at: string };
+
+/** Review intervals in days for boxes 1..4 (Leitner-style). Hypothesis. */
+export const REVIEW_INTERVAL_DAYS = [1, 3, 7, 21];
+/** Daily plan size: one review, one weak point, one new lesson. Hypothesis. */
+export const DAILY_PLAN_SIZE = 3;
+
+export type LessonState = {
+  lessonId: string;
+  /** 0 = never answered correctly; 1..4 = review box. */
+  box: number;
+  lastAt?: string;
+  lastCorrect?: boolean;
+  /** When the next review is due (ISO); undefined if never answered correctly. */
+  dueAt?: string;
+};
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Replay attempts in time order. A correct answer moves the lesson up one box only
+ * when it was due (re-solving early does not count as spaced practice); a wrong
+ * answer drops it back to box 1.
+ */
+export function lessonStates(attempts: LessonAttempt[], lessons: Lesson[] = LESSONS): Map<string, LessonState> {
+  const states = new Map<string, LessonState>(lessons.map(l => [l.id, { lessonId: l.id, box: 0 }]));
+  const ordered = [...attempts].sort((a, b) => a.at.localeCompare(b.at));
+  for (const a of ordered) {
+    const st = states.get(a.lessonId);
+    if (!st) continue;
+    const due = !st.dueAt || a.at >= st.dueAt;
+    if (a.correct) st.box = st.box === 0 ? 1 : due ? Math.min(st.box + 1, REVIEW_INTERVAL_DAYS.length) : st.box;
+    else st.box = st.box === 0 ? 0 : 1;
+    st.lastAt = a.at; st.lastCorrect = a.correct;
+    st.dueAt = st.box > 0 ? new Date(new Date(a.at).getTime() + REVIEW_INTERVAL_DAYS[st.box - 1] * DAY_MS).toISOString() : undefined;
+  }
+  return states;
+}
+
+/**
+ * Provisional skill mastery: a skill counts as practised when every lesson that
+ * teaches it has reached box 2 (answered correctly again after a delay). This is a
+ * stand-in until transfer problems exist (re-solving the same position can be memorised).
+ */
+export function practisedSkills(states: Map<string, LessonState>, lessons: Lesson[] = LESSONS): Set<SkillId> {
+  const out = new Set<SkillId>();
+  const taught = new Set(lessons.flatMap(l => l.skills));
+  for (const skill of taught) {
+    const ls = lessons.filter(l => l.skills.includes(skill));
+    if (ls.every(l => (states.get(l.id)?.box ?? 0) >= 2)) out.add(skill);
+  }
+  return out;
+}
+
+/**
+ * A lesson is recommended as "new" only when the prerequisites of its skills that
+ * are taught somewhere are practised. Prerequisites with no lessons yet do not
+ * block. Lessons are never hidden: this affects recommendations only.
+ */
+export function prerequisitesMet(lesson: Lesson, practised: Set<SkillId>, lessons: Lesson[] = LESSONS): boolean {
+  const taught = new Set(lessons.flatMap(l => l.skills));
+  const own = new Set(lesson.skills);
+  return lesson.skills.every(skill => SKILLS[skill].requires.every(req => own.has(req) || !taught.has(req) || practised.has(req)));
+}
+
+export type PlanItem = { lessonId: string; reason: "review" | "weak" | "new" };
+
+/** Today's plan: the most overdue review, the most recent mistake, then the next new lesson. */
+export function dailyPlan(attempts: LessonAttempt[], now: Date, lessons: Lesson[] = LESSONS): PlanItem[] {
+  const states = lessonStates(attempts, lessons);
+  const nowIso = now.toISOString();
+  const plan: PlanItem[] = [];
+  const taken = new Set<string>();
+  const add = (lessonId: string | undefined, reason: PlanItem["reason"]) => {
+    if (lessonId && !taken.has(lessonId) && plan.length < DAILY_PLAN_SIZE) { plan.push({ lessonId, reason }); taken.add(lessonId); }
+  };
+  const all = [...states.values()];
+  const weak = all.filter(s => s.lastCorrect === false).sort((a, b) => (b.lastAt ?? "").localeCompare(a.lastAt ?? ""));
+  const due = all.filter(s => s.dueAt && s.dueAt <= nowIso && s.lastCorrect !== false).sort((a, b) => (a.dueAt ?? "").localeCompare(b.dueAt ?? ""));
+  const practised = practisedSkills(states, lessons);
+  const fresh = lessons.filter(l => !all.find(s => s.lessonId === l.id)?.lastAt && prerequisitesMet(l, practised, lessons));
+  add(due[0]?.lessonId, "review");
+  add(weak[0]?.lessonId, "weak");
+  for (const l of fresh) add(l.id, "new");
+  for (const s of due.slice(1)) add(s.lessonId, "review");
+  for (const s of weak.slice(1)) add(s.lessonId, "weak");
+  return plan;
+}

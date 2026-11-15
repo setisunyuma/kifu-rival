@@ -1,0 +1,7 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <rect width="64" height="64" rx="6" fill="#202b29"/>
+  <rect x="4" y="4" width="56" height="56" rx="3" fill="none" stroke="#bc9b6d" stroke-width="1.8"/>
+  <path d="M32 9L52 18L49 54H15L12 18Z" fill="#bd986a" stroke="#dfbf8d" stroke-width="1.3"/>
+  <path d="M32 14L47 21L45 50H19L17 21Z" fill="#e7c891"/>
+  <text x="32" y="43" font-size="30" text-anchor="middle" fill="#242622" font-weight="900" font-family="Yu Mincho, Hiragino Mincho ProN, serif">棋</text>
+</svg>

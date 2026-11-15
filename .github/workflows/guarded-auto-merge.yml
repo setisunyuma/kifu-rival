@@ -1,0 +1,39 @@
+name: Guarded auto-merge
+
+on:
+  workflow_run:
+    workflows: ["Source validation"]
+    types: [completed]
+
+# The only privileged workflow. Never run/check out code from a PR here.
+# Check out only trusted main; PR code has been tested in the read-only workflow.
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: guarded-auto-merge-main
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    if: >-
+      github.repository == 'setisunyuma/kifu-rival' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify trusted PR and merge only if eligible
+        run: node scripts/guarded-auto-merge.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+# No Cloudflare/ChatGPT credentials; no deployment; no external PR code in this job.

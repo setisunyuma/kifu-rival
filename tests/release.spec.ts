@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { classifyChanges, compareManifest, isMaintenanceScript, listReleaseFiles, sameDependencies, servingScriptsUnchanged, sha256 } from "../scripts/release.mjs";
+import { classifyChanges, compareManifest, crossCheckDryRun, isMaintenanceScript, planSync, listReleaseFiles, sameDependencies, servingScriptsUnchanged, sha256 } from "../scripts/release.mjs";
 
 const m = (path: string, status = "M") => ({ status, path });
 
@@ -89,4 +89,78 @@ test("release plan: unclassified files are reviewed (runtime), known tooling is 
     assert.equal(classifyChanges([m(path)]).level, "none", path);
   }
   assert.equal(classifyChanges([m("drizzle.config.ts")]).level, "data");
+});
+
+// ---------------------------------------------------------------------------
+// Pre-sync safety (review of PR #9): detect Site-only content BEFORE any sync.
+// ---------------------------------------------------------------------------
+const H = (x: string) => sha256(x);
+const github = { "lib/shogi.ts": H("new"), "README.md": H("readme") };
+const decision = (path: string, action: "overwrite" | "delete", content: string) => ({ path, action, siteSha256: H(content), reason: "reviewed: GitHub has the newer version", decidedBy: "user" });
+
+test("preflight: identical trees are safe and plan no changes", () => {
+  const plan = planSync(github, { ...github });
+  assert.deepEqual([plan.add, plan.overwrite, plan.delete, plan.unresolved], [[], [], [], []]);
+  assert.equal(plan.safe, true);
+});
+
+test("preflight: a file that exists only on the Site stops the sync", () => {
+  const plan = planSync(github, { ...github, "lib/site-only-lessons.ts": H("site work") });
+  assert.deepEqual(plan.delete, ["lib/site-only-lessons.ts"]);
+  assert.equal(plan.safe, false);
+  assert.deepEqual(plan.unresolved.map(u => [u.action, u.path]), [["delete", "lib/site-only-lessons.ts"]]);
+});
+
+test("preflight: a file whose content differs stops the sync until a person decides", () => {
+  const site = { ...github, "lib/shogi.ts": H("site edit") };
+  assert.equal(planSync(github, site).safe, false);
+  assert.equal(planSync(github, site, [decision("lib/shogi.ts", "overwrite", "site edit")]).safe, true);
+  assert.equal(planSync(github, site, [{ ...decision("lib/shogi.ts", "overwrite", "site edit"), reason: " " }]).safe, false, "a decision needs a reason");
+  assert.equal(planSync(github, site, [decision("lib/shogi.ts", "delete", "site edit")]).safe, false, "the decided action must match");
+});
+
+test("preflight: a file deleted on GitHub but still on the Site is listed for deletion and needs a decision", () => {
+  const site = { ...github, "app/old-feature.tsx": H("old") };
+  const plan = planSync(github, site, [decision("app/old-feature.tsx", "delete", "old")]);
+  assert.deepEqual(plan.delete, ["app/old-feature.tsx"]);
+  assert.equal(plan.safe, true);
+});
+
+test("preflight: a decision becomes stale when the Site file changes after review (sync stops again)", () => {
+  const reviewed = [decision("lib/shogi.ts", "overwrite", "site edit v1")];
+  const plan = planSync(github, { ...github, "lib/shogi.ts": H("site edit v2") }, reviewed);
+  assert.equal(plan.safe, false);
+  assert.deepEqual(plan.stale, ["lib/shogi.ts"]);
+});
+
+test("preflight: files only added from GitHub need no decision (nothing on the Site is lost)", () => {
+  const plan = planSync(github, { "README.md": H("readme") });
+  assert.deepEqual(plan.add, ["lib/shogi.ts"]);
+  assert.equal(plan.safe, true);
+});
+
+test("preflight: an rsync dry-run that disagrees with the plan is detected", () => {
+  const site = { ...github, "lib/shogi.ts": H("old"), "app/old.tsx": H("x") };
+  const plan = planSync(github, site, [decision("lib/shogi.ts", "overwrite", "old"), decision("app/old.tsx", "delete", "x")]);
+  const agree = ">f.st...... lib/shogi.ts\n*deleting   app/old.tsx\ncd+++++++++ lib/\n";
+  assert.equal(crossCheckDryRun(plan, agree).ok, true);
+  const extraDelete = agree + "*deleting   db/local-backup.sql\n";
+  assert.deepEqual(crossCheckDryRun(plan, extraDelete).unexpectedDeletions, ["db/local-backup.sql"], "e.g. an exclude rule was forgotten");
+  assert.deepEqual(crossCheckDryRun(plan, ">f.st...... lib/shogi.ts\n").missedDeletions, ["app/old.tsx"]);
+  assert.deepEqual(crossCheckDryRun(plan, agree + ">f+++++++++ public/x.png\n").unexpectedTransfers, ["public/x.png"]);
+  assert.equal(crossCheckDryRun(plan, agree + ".f..tp..... docs/README.md\n").ok, true, "attribute-only updates move no data");
+});
+
+test("post-sync verify: tampering after the sync is detected by the hash check", () => {
+  const root = mkdtempSync(join(tmpdir(), "kifu-sync-"));
+  try {
+    mkdirSync(join(root, "lib"));
+    writeFileSync(join(root, "lib", "shogi.ts"), "new"); writeFileSync(join(root, "README.md"), "readme");
+    const hashes = () => Object.fromEntries(listReleaseFiles(root).map(p => [p, sha256(readFileSync(join(root, p)))]));
+    assert.equal(compareManifest(github, hashes()).ok, true, "synced tree matches");
+    writeFileSync(join(root, "lib", "shogi.ts"), "tampered");
+    assert.deepEqual(compareManifest(github, hashes()).changed, ["lib/shogi.ts"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

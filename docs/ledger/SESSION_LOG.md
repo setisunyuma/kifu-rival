@@ -187,3 +187,10 @@
 - Actor: Claude（Claude Codeクラウド）
 - Review: ユーザーがPR #9に2点を指摘（未分類ファイルが`none`になる、`package.json`のビルド／起動／インストール系スクリプト変更を見逃す）。いずれも修正し、回帰テスト3件を追加（release関連8件、全49件PASS）。ミューテーション3種を全検出。**PR #9は手動レビュー対象のまま**で、Claudeはマージしない。
 - Decisions: ADR-011（入玉宣言の仕様、エンジン試作方針、リリース・配備先の比較、ブランチ自動削除、教材優先）を記録。Q-011をRESOLVED、Q-003を更新。
+
+## 2026-11-15 — PR #9 レビュー第2回: 同期前の差分確定
+
+- Actor: Claude（Claude Codeクラウド）
+- Review: 同期（`rsync --delete`）の後に照合する順序では、Siteにしかないファイルを失う。手順を「特定→保全→読み取り専用の差分→一覧化と判断→停止条件→rsync空実行との突き合わせ→同期→同期後の照合→復旧確認」に変更（`docs/RELEASE.md` §3）。
+- Tools: `release.mjs snapshot`／`preflight`、`planSync`／`crossCheckDryRun`。テスト全68件PASS、ミューテーション4種を検出、rsync 3.2.7でのリハーサルを完了（この環境にrsyncを一時的に導入）。リハーサル中、rsyncが日時だけの差分も出力するため判定を誤る不具合を見つけて修正（属性だけの更新は転送に数えない、`--checksum`で内容比較）。
+- PR #9は手動レビュー対象のまま。Claudeはマージしない。

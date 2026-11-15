@@ -9,7 +9,7 @@
 | 役割 | 担当 | できること／できないこと |
 | --- | --- | --- |
 | 準備 | Claude（GitHub書込権限あり） | リリース候補SHAの選定、`release plan`と`manifest`の作成、台帳記録。**Sitesへの配備権限はない** |
-| 配備 | ChatGPT（Sites権限あり） | Sitesソースへの反映、`verify`、ビルド、Privateのままデプロイ、アクセス設定の確認、ロールバック |
+| 配備 | ChatGPT（Sites権限あり） | 同期前の保全と`preflight`、差分ごとの判断の記録、Sitesソースへの反映、`verify`、ビルド、Privateのままデプロイ、アクセス設定の確認、ロールバック |
 | 承認・確認 | ユーザー | `data`判定の承認、iPhone実機での動作確認、公開範囲の変更（通常は変更しない） |
 
 ## 0. 前提の確認
@@ -45,19 +45,55 @@ npm run release:manifest -- --out outputs/release-<short-sha>.json
 
 `outputs/`はGit管理外。マニフェストは追跡ファイル全件のSHA-256で、コミットSHAを含む。秘密情報は入らないが、Siteの実データも入らない。配備担当へはファイルを渡すか、同じコマンドを配備側で再実行してもらう（決定的なので同じ結果になる）。
 
-## 3. Sitesソースへの反映と照合（配備担当）
+## 3. Sitesソースへの反映（配備担当）— 同期の前に差分を確定する
 
-1. Public GitHubから候補SHAを取得する（`git clone https://github.com/setisunyuma/kifu-rival` → `git checkout <sha>`、または同SHAのアーカイブ）。
-2. Sitesソースのチェックアウトへ内容を反映する。**削除されたファイルも反映する**（例: `rsync -a --delete --exclude .git --exclude node_modules --exclude .sites-runtime --exclude .wrangler <github-checkout>/ <sites-checkout>/`）。Sites側の`.git`は残す。
-3. 照合する。
+**重要**: 同期（`rsync --delete`）を先に行うと、Siteにしかないファイルが消え、事後の照合では見つけられない。必ず次の順序で行う。各段階は独立して働き、どれか一つが失敗したら止まる。ClaudeはSiteにアクセスできないため、§3はSites権限を持つ配備担当（ChatGPT）が実行する。
+
+1. **対象の特定**: 配備元（GitHubの候補SHAをクリーンにチェックアウトした`<github-checkout>`）、配備先（Sitesソースのチェックアウト`<sites-checkout>`）、対象SHA、現在のSite versionを`SESSION_LOG`に書く。
+2. **保全（同期の前）**: Sitesソースを丸ごと退避し、その時点のハッシュを記録する。復旧の確認に使う。
 
 ```sh
-node scripts/release.mjs verify outputs/release-<short-sha>.json --root <sites-checkout>
+tar czf outputs/site-backup-<date>.tgz -C <sites-checkout> --exclude node_modules .
+node scripts/release.mjs snapshot --root <sites-checkout> --out outputs/site-before-<date>.json
 ```
 
-`verify: OK`以外ならデプロイしない。`extra`（Sitesにだけ存在するファイル）が出たら、Sites側で独自に編集された内容がある可能性がある。**GitHubを正本とするため、必要な変更はGitHubへPRで取り込んでから**やり直す。
+   D1の本番データは、このリリースでは触れない（`data`判定なら§データ）。Siteのversion履歴でロールバックできることも確認しておく。
 
-4. Sitesソースにコミットする。メッセージに`GitHub <full-sha>`を含める。
+3. **差分の取得（読み取り専用）**: 同期は行わず、GitHubのマニフェストとSiteを比べる。
+
+```sh
+node scripts/release.mjs preflight outputs/release-<short-sha>.json --root <sites-checkout> --out outputs/preflight-<short-sha>.json
+```
+
+   出力は「追加（GitHubにだけある）」「上書き（内容が違う）」「削除（Siteにだけある）」の3種類。追加は既存のSiteの内容を失わないので判断不要。**上書きと削除は、1件ずつ人の判断が要る**。
+
+4. **一覧の確認**: `preflight-*.json`の`decisionTemplate`に、判断が必要なファイルがハッシュ付きで並ぶ。初回リリースではGitHubとSiteに共通の基準がないため、**「GitHubが新しいはず」と決めつけない**。各ファイルについて、Site側の内容を読んで次のどちらかにする。
+   - Site側の変更を残すべき → **同期を止め**、その変更をGitHubへPRで取り込む。マージ後の新しいSHAで§1からやり直す。
+   - GitHub側で置き換えてよい → `decisions.json`にその1件を記録する（`path`、`action`（`overwrite`／`delete`）、`siteSha256`（一覧のまま）、`reason`、`decidedBy`）。
+
+5. **停止条件**: 次のどれかに当てはまる間は同期しない。`preflight`は終了コード3（STOP）を返す。
+   - 判断のない上書き・削除がある。
+   - 判断の後にSite側のファイルが変わった（ハッシュが違う判断は「古い判断」として無効になる）。
+   - 保全（手順2）ができていない、またはD1・認証・公開設定に関わる差分がある。
+
+6. **同期方法の事前確認**: rsyncの空実行の結果を、preflightの予測と突き合わせる。除外設定の漏れなどで予測外の削除・転送があれば止まる。
+
+```sh
+rsync -a --checksum --delete --dry-run --itemize-changes \
+  --exclude .git --exclude node_modules --exclude .sites-runtime --exclude .wrangler \
+  <github-checkout>/ <sites-checkout>/ > outputs/rsync-dry-run.txt
+node scripts/release.mjs preflight outputs/release-<short-sha>.json --root <sites-checkout> \
+  --decisions decisions.json --rsync-dry-run outputs/rsync-dry-run.txt
+```
+
+   `--checksum`は内容で比較させるため（日時とサイズだけの比較では内容の変更を見逃すことがある）。`SAFE TO SYNC`が出たときだけ次へ進む。
+
+7. **同期**: 手順6と同じ引数から`--dry-run --itemize-changes`を外して実行する。
+8. **同期後の照合**: `node scripts/release.mjs verify outputs/release-<short-sha>.json --root <sites-checkout>`。`verify: OK`以外ならデプロイしない。
+9. **復旧の確認**: 問題があれば`outputs/site-backup-<date>.tgz`を展開し、`node scripts/release.mjs verify outputs/site-before-<date>.json --root <復元先>`で、同期前と完全に同じに戻ったことを確かめる。
+10. Sitesソースにコミットする。メッセージに`GitHub <full-sha>`を含め、`decisions.json`の要約を`SESSION_LOG`へ残す。
+
+2026-11-15のリハーサル（GitHubの古いSHA＋Siteだけのファイル1件＋Site側の編集1件）で、1回目の`preflight`はSTOP（未判断8件）、判断を記録してrsyncの空実行と突き合わせるとSAFE、同期後の`verify`はOK、同期後の改ざんは`verify`で検出、バックアップからの復元は同期前のハッシュと一致した。判断後にSite側を編集すると「古い判断」として再びSTOPした。
 
 ## 4. ビルド・Privateデプロイ（配備担当）
 
@@ -97,11 +133,11 @@ GitHubは検査済みスナップショットから新しい履歴で始めた�
 
 1. 配備担当が現在のSitesソースのHEADとSite versionを控える。
 2. `--base`には、GitHubへ移管した最初のコミット`992fdd0c50ad5316dd8621b94ddffd271844ef19`を使い、変更の分類を確認する。2026-11-15時点（`main` `53557f6`）で配信物の変更は`lib/shogi.ts`（千日手・500手・入玉宣言の判定・不正局面検出）と`lib/lessons.ts`（「はじめての一手詰」の二歩修正）のみで判定は`app`。D1・API・依存関係の変更はない。実行時に再確認する。
-3. §3の`verify`で`extra`や`changed`を見て、Sites側にしかない変更がないか確かめる。ある場合はGitHubへ取り込んでからやり直す。
+3. §3の手順3〜5（同期前の`preflight`）で、Site側にしかないファイルと内容の違うファイルをすべて洗い出す。共通の基準SHAがないため、差分を「不要」と決めつけず、1件ずつ「GitHubへ取り込む」か「置き換えてよい」かを判断して記録する。
 4. 以降は通常の手順に従う。
 
 ## リリース記録
 
-| 日付 | GitHub SHA | Site version | 判定 | verify | アクセス事後確認 | 動作確認 | 戻し先 |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| （未実施） | | | | | | | |
+| 日付 | GitHub SHA | Site version | 判定 | preflight（未判断0件の確認） | 判断の件数 | verify | アクセス事後確認 | 動作確認 | 戻し先 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| （未実施） | | | | | | | | | |

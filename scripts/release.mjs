@@ -9,8 +9,16 @@
  *       Classify what changed since the last release and whether it needs approval.
  *   node scripts/release.mjs manifest [--out <file>]
  *       Hash every tracked file of a clean checkout (the GitHub release commit).
+ *   node scripts/release.mjs snapshot --root <dir> --out <file>
+ *       Hash every file of any directory (e.g. the Sites checkout BEFORE syncing), for
+ *       backup integrity and for verifying a restore. Needs no Git.
+ *   node scripts/release.mjs preflight <manifest.json> --root <dir> [--decisions <file>] [--rsync-dry-run <file>] [--out <file>]
+ *       READ-ONLY check before syncing. Lists files the sync would add, overwrite or
+ *       delete. Overwrites and deletions of Site files stop the release unless each one
+ *       has a recorded decision bound to the file's current hash. Optionally cross-checks
+ *       an `rsync --dry-run --itemize-changes` listing. Exit 0 = safe to sync, 3 = STOP.
  *   node scripts/release.mjs verify <manifest.json> [--root <dir>]
- *       Compare a directory (e.g. the Sites source checkout) against the manifest.
+ *       AFTER syncing: compare a directory against the manifest (detects any difference).
  */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -107,6 +115,90 @@ export function compareManifest(expected, actual) {
   return { ok: !missing.length && !extra.length && !changed.length, missing, extra, changed };
 }
 
+/**
+ * Decision recorded by a person for one Site file the sync would overwrite or delete.
+ * `siteSha256` binds it to the exact content reviewed, so a later edit makes it stale.
+ * @typedef {{ path: string, action: "overwrite" | "delete", siteSha256: string, reason: string, decidedBy: string }} SyncDecision
+ */
+
+/**
+ * Plan a sync of `actual` (Site) towards `expected` (GitHub release) without touching files.
+ * @param {Record<string,string>} expected
+ * @param {Record<string,string>} actual
+ * @param {SyncDecision[]} [decisions]
+ */
+export function planSync(expected, actual, decisions = []) {
+  const add = Object.keys(expected).filter(p => !(p in actual)).sort();
+  const overwrite = Object.keys(expected).filter(p => p in actual && actual[p] !== expected[p]).sort();
+  const remove = Object.keys(actual).filter(p => !(p in expected)).sort();
+  const decided = (path, action) => decisions.some(d => d.path === path && d.action === action && d.siteSha256 === actual[path] && d.reason?.trim() && d.decidedBy?.trim());
+  const unresolved = [
+    ...overwrite.filter(p => !decided(p, "overwrite")).map(path => ({ path, action: "overwrite", siteSha256: actual[path] })),
+    ...remove.filter(p => !decided(p, "delete")).map(path => ({ path, action: "delete", siteSha256: actual[path] })),
+  ];
+  const stale = decisions.filter(d => !(d.path in actual) || actual[d.path] !== d.siteSha256).map(d => d.path).sort();
+  return { add, overwrite, delete: remove, unresolved, stale, safe: unresolved.length === 0 };
+}
+
+/**
+ * Cross-check an `rsync -a --delete --dry-run --itemize-changes` listing against the plan.
+ * Any deletion or transfer the plan did not predict means the two views disagree: stop.
+ */
+export function crossCheckDryRun(plan, itemizeText) {
+  const deletions = [], transfers = [];
+  for (const raw of itemizeText.split("\n")) {
+    const line = raw.trimEnd();
+    if (line.startsWith("*deleting ")) { const p = line.slice(10).trim(); if (!p.endsWith("/")) deletions.push(p); continue; }
+    // Only lines that move data count ("<"/">" transfer, "c" create); "." is an attribute-only update.
+    const m = line.match(/^[<>c]f\S*\s+(.+)$/);
+    if (m) transfers.push(m[1]);
+  }
+  const want = new Set([...plan.add, ...plan.overwrite]);
+  const unexpectedDeletions = deletions.filter(p => !plan.delete.includes(p)).sort();
+  const missedDeletions = plan.delete.filter(p => !deletions.includes(p)).sort();
+  const unexpectedTransfers = transfers.filter(p => !want.has(p)).sort();
+  const missedTransfers = [...want].filter(p => !transfers.includes(p)).sort();
+  return { ok: !unexpectedDeletions.length && !missedDeletions.length && !unexpectedTransfers.length && !missedTransfers.length, unexpectedDeletions, missedDeletions, unexpectedTransfers, missedTransfers };
+}
+
+function hashTree(root) {
+  return Object.fromEntries(listReleaseFiles(root).map(p => [p, sha256(readFileSync(join(root, p)))]));
+}
+
+function snapshot(args) {
+  const root = resolve(option(args, "--root") || ".");
+  const out = option(args, "--out");
+  if (!out) throw new Error("snapshot requires --out <file>");
+  const files = hashTree(root);
+  writeFileSync(out, JSON.stringify({ schema: MANIFEST_SCHEMA, repository: "snapshot", commit: `snapshot of ${root}`, files }, null, 2) + "\n");
+  console.log(`snapshot: ${Object.keys(files).length} files of ${root} -> ${out}`);
+}
+
+function preflight(args) {
+  const valueOptions = ["--root", "--decisions", "--rsync-dry-run", "--out"].map(o => option(args, o));
+  const file = args.find(a => !a.startsWith("--") && !valueOptions.includes(a));
+  if (!file) throw new Error("preflight requires <manifest.json>");
+  const data = JSON.parse(readFileSync(file, "utf8"));
+  if (data.schema !== MANIFEST_SCHEMA || !data.files) throw new Error("Unsupported manifest");
+  const root = resolve(option(args, "--root") || ".");
+  const decisionsFile = option(args, "--decisions");
+  const decisions = decisionsFile ? JSON.parse(readFileSync(decisionsFile, "utf8")) : [];
+  const plan = planSync(data.files, hashTree(root), decisions);
+  const dryRunFile = option(args, "--rsync-dry-run");
+  const cross = dryRunFile ? crossCheckDryRun(plan, readFileSync(dryRunFile, "utf8")) : null;
+  console.log(`preflight (read-only): ${root} -> ${data.repository}@${data.commit}`);
+  console.log(`  add ${plan.add.length}, overwrite ${plan.overwrite.length}, delete ${plan.delete.length}, unresolved ${plan.unresolved.length}`);
+  for (const u of plan.unresolved) console.log(`  UNRESOLVED ${u.action}: ${u.path}`);
+  for (const p of plan.stale) console.log(`  stale decision (file changed or gone since review): ${p}`);
+  if (cross && !cross.ok) console.log(`  rsync dry-run disagrees with the plan: ${JSON.stringify(cross)}`);
+  const out = option(args, "--out");
+  if (out) writeFileSync(out, JSON.stringify({ manifest: data.commit, root, plan, rsyncCheck: cross,
+    decisionTemplate: plan.unresolved.map(u => ({ ...u, reason: "", decidedBy: "" })) }, null, 2) + "\n");
+  const safe = plan.safe && (!cross || cross.ok);
+  console.log(safe ? "preflight: SAFE TO SYNC (every overwrite/delete has a current decision)" : "preflight: STOP — do not sync. Bring Site-only changes into GitHub by PR, or record a decision per file, then re-run.");
+  if (!safe) process.exitCode = 3;
+}
+
 function git(args, cwd) { return execFileSync("git", args, { cwd, encoding: "utf8" }); }
 function option(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; }
 
@@ -120,7 +212,7 @@ export function sameDependencies(before, after) {
  * Every other script (build, dev, start, install:ci, db:*, npm lifecycle hooks such as
  * preinstall/postinstall/prepare, and any new name) may affect deployment.
  */
-const MAINTENANCE_SCRIPT = /^(lint|test(:[\w-]+)?|ledger:check|public:check|release:(plan|manifest|verify))$/;
+const MAINTENANCE_SCRIPT = /^(lint|test(:[\w-]+)?|ledger:check|public:check|release:(plan|manifest|snapshot|preflight|verify))$/;
 export function isMaintenanceScript(name) { return MAINTENANCE_SCRIPT.test(name); }
 /** True when every added, removed or edited npm script is a maintenance script. */
 export function servingScriptsUnchanged(before, after) {
@@ -190,7 +282,9 @@ if (/release\.mjs$/.test(process.argv[1] ?? "") && import.meta.url === pathToFil
     if (command === "plan") plan(args, root());
     else if (command === "manifest") manifest(args, root());
     else if (command === "verify") verify(args);
-    else throw new Error("Usage: node scripts/release.mjs plan|manifest|verify (see header comment)");
+    else if (command === "snapshot") snapshot(args);
+    else if (command === "preflight") preflight(args);
+    else throw new Error("Usage: node scripts/release.mjs plan|manifest|snapshot|preflight|verify (see header comment)");
   } catch (error) {
     console.error(`release: ${error.message}`);
     process.exitCode = 1;

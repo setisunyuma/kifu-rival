@@ -32,7 +32,7 @@
 **正式な手順は [RELEASE.md](RELEASE.md)**（KIF-003）。要点は次のとおり。
 
 1. GitHub `main`の候補SHAについて `npm run release:plan -- --base <前回リリースSHA>` で変更を分類する。`data`判定（D1・hosting binding・認証・localStorageキー）は承認とバックアップがそろうまで配備しない。
-2. `npm run release:manifest` で候補SHAの全ファイルのハッシュを取り、Sitesソースへ反映したあと `release:verify` で一致を確認する。一致しなければデプロイしない。
+2. `npm run release:manifest` で候補SHAの全ファイルのハッシュを取る。**同期の前に**Sitesソースを退避（`tar`と`release.mjs snapshot`）し、`release.mjs preflight`で読み取り専用の差分を出す。Siteにしかないファイルや内容の違うファイルは1件ずつ判断し、未判断が残る間は同期しない。rsyncの空実行とも突き合わせてから同期し、同期後に`release:verify`で一致を確認する。
 3. Sites公式のビルド経路でPrivateのままデプロイし、アクセス設定の事後確認とスマホでの動作確認を行う。手動でCloudflareへ同じWorkerを上書きしない。
 4. Site versionとGitHub SHAの対応を台帳とRELEASE.mdの記録表に残す。ロールバックはSiteの直前versionへ戻す。
 

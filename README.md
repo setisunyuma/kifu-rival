@@ -5,7 +5,7 @@
 
 現時点は**試作第1号（ALPHA）**です。UIと基本対局を試せる段階で、強い思考エンジン・自然な生成会話・有段者向け教材は**未実装**です。特にLv.4も実力不足というユーザー評価があります。完成品として説明しないでください。
 
-**公開範囲の確定方針（2026-11-15）**: 開発用GitHubソースは **Public**、実際に動くChatGPT Sitesのアプリは**本人限定のPrivate**を継続。移管先[`setisunyuma/kifu-rival`](https://github.com/setisunyuma/kifu-rival)にソース147ファイルを移管済みで、PR #1のCI成功と自動マージも実測済みです。**Claude Codeクラウドからのclone・PR操作、`main`保護ルールの設定は別途検証中**。Publicは自作コードに再利用許諾を与える意味ではなく、ルート`LICENSE`は未選定です。公開前は [点検表](docs/PUBLIC_RELEASE_CHECKLIST.md) を確認します。
+**公開範囲の確定方針（2026-11-15）**: 開発用GitHubソースは **Public**、実際に動くChatGPT Sitesのアプリは**本人限定のPrivate**を継続。移管先[`setisunyuma/kifu-rival`](https://github.com/setisunyuma/kifu-rival)にソース147ファイルを移管済みで、PR #1のCI成功と自動マージも実測済みです。**`main`保護ルール設定・PR #5の保護下自動マージは検証済み。Claude Codeクラウドからのclone・PR操作は別途検証中**。Publicは自作コードに再利用許諾を与える意味ではなく、ルート`LICENSE`は未選定です。公開前は [点検表](docs/PUBLIC_RELEASE_CHECKLIST.md) を確認します。
 
 ## 最初に読むもの（人間・Claude Code・ChatGPT共通）
 

@@ -46,14 +46,14 @@
 5. Claude CodeがPublicリポジトリをcloneできること、台帳を読めること、PRまたはコミットを書ける権限が必要なときは自分のGitHub連携を使うことを確認する。`KIF-002`の受入証拠を追記する。
 6. 以後 **GitHub=開発ソース・台帳の正本 / Private ChatGPT Sites=試作版の実行先**。Claudeは作業ブランチとPRを作り、CIに通った限定変更は`docs/AUTOMERGE_POLICY.md`に従い自動マージする。Site更新は権限のあるChatGPT側と同期・明示的デプロイする。同期経路確立前に両者を独立して別々に編集しない。
 
-この環境のGitHubコネクタには新規リポジトリ作成操作がなく、`gh`のログインも確認できなかったが、その後ユーザーのGitHub接続で**Public repo・ソース移管・GitHub Actions成功を確認済み**。**Claude Codeクラウドからのclone/PR、main Rulesetの設定は別途確認が必要**。GitHub Publicの無料CI枠は権利・実行条件の最新公式情報を適用し、予期しない有料機能は承認なしで有効にしない。
+この環境のGitHubコネクタには新規リポジトリ作成操作がなく、`gh`のログインも確認できなかったが、その後ユーザーのGitHub接続で**Public repo・ソース移管・GitHub Actions成功を確認済み**。**main Ruleset `Protect main`は有効化済み、PR #5で保護下の無人マージ成功を確認。Claude Codeクラウドからのclone/PRのみ別途確認が必要**。GitHub Publicの無料CI枠は権利・実行条件の最新公式情報を適用し、予期しない有料機能は承認なしで有効にしない。
 
 ## 自動マージの運用と独立したリリース
 
 - `.github/workflows/verify.yml`: PRの検査。実行コードはPRのものなので、`GITHUB_TOKEN`は読取専用で、Site秘密情報・デプロイ資格情報を渡さない。
 - `.github/workflows/guarded-auto-merge.yml`: CI成功後、GitHub Actions `workflow_run`の書込権限で**mainの信頼済みコードだけを実行**。PR頭・base両SHA、対象パス、作成者、CIの出どころを照合し、`scripts/guarded-auto-merge.mjs`からGitHub RESTの`squash merge`を実行。条件に該当しなければ保留する。
 - 設定・例外・操作手順は[`AUTOMERGE_POLICY.md`](AUTOMERGE_POLICY.md)。**マージ済みPR ≠ 非公開Siteへのデプロイ**。本番反映は`KIF-003`の手順を別に確立する。
-- GitHub Rulesetによる`main`のPR必須・`verify`必須・force push防止は二重防御として設定・動作確認する。GitHub UI上のルール設定が済むまでは防御完了と記録しない。
+- GitHub Ruleset `Protect main`（ID `27308076`）を2026-11-15に有効化。`main`のPR・`verify`必須、削除・force push禁止をGitHub APIで照合。PR #5の`verify`成功→無人マージ成功を実地確認済み。Claude CodeクラウドからのPR操作とSiteへの独立リリース経路は未確認。
 
 ## Git履歴・ロールバック
 

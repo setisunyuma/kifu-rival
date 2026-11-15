@@ -11,9 +11,9 @@ import type { LucideIcon } from "lucide-react";
 import {
   DECLARATION_RULE_LABELS, DeclarationRule, Game, HandKind, HAND_ORDER, Move, PIECE_NAMES, PROMOTED_NAMES, Side,
   Square, checkDeclaration, chooseRivalMove, declarationRuleOf, declareEntering, explainDeclaration,
-  initialGame, legalMoves, playMove, shouldDeclare, usi,
+  MissedMate, findMissedMates, initialGame, legalMoves, playMove, shouldDeclare, usi,
 } from "../lib/shogi";
-import { LessonAttempt, LESSONS, PlanItem, ROADMAP, dailyPlan } from "../lib/lessons";
+import { LessonAttempt, LESSONS, PlanItem, ROADMAP, dailyPlan, skillsForMissedMates } from "../lib/lessons";
 import { RivalGameRecord, RivalMessage, rivalReply } from "../lib/rival-chat";
 
 type View = "play" | "learn" | "rival" | "history";
@@ -130,6 +130,8 @@ export default function RivalApp() {
   // Answers to lessons, kept on this device only (KIF-032 minimal loop).
   const [attempts, setAttempts] = useState<LessonAttempt[]>([]);
   const [attemptRecorded, setAttemptRecorded] = useState(false);
+  // Review of recent games: mates the player missed (computed after render, one game per tick).
+  const [gameReview, setGameReview] = useState<{ recordId: string; date: string; missed: MissedMate[] }[]>([]);
   const [lessonFeedback, setLessonFeedback] = useState("");
   const [showHint, setShowHint] = useState(false);
   const [records, setRecords] = useState<GameRecord[]>([]);
@@ -194,6 +196,22 @@ export default function RivalApp() {
     if (chatScroll.current) chatScroll.current.scrollTop = chatScroll.current.scrollHeight;
   }, [messages, view]);
   useEffect(() => {
+    if (!hydrated) return;
+    const recent = records.slice(0, 3);
+    let cancelled = false;
+    const results: { recordId: string; date: string; missed: MissedMate[] }[] = [];
+    // One game per timer tick (about 1 s of work at most) so the screen stays responsive.
+    const step = (i: number) => {
+      if (cancelled) return;
+      if (i >= recent.length) { setGameReview(results); return; }
+      try { results.push({ recordId: recent[i].id, date: recent[i].date, missed: findMissedMates(recent[i].moves, "black", 3) }); } catch { /* skip unreadable records */ }
+      window.setTimeout(() => step(i + 1), 0);
+    };
+    const timer = window.setTimeout(() => step(0), 300);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [hydrated, records]);
+
+  useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(""), 3000);
     return () => window.clearTimeout(timer);
@@ -205,7 +223,8 @@ export default function RivalApp() {
   const practiceMoves = useMemo(() => legalMoves(practice), [practice]);
   const lesson = LESSONS[lessonIndex];
   // Computed only after hydration so the server render and the first client render agree.
-  const todayPlan: PlanItem[] = useMemo(() => (hydrated ? dailyPlan(attempts, new Date()) : []), [hydrated, attempts]);
+  const gameSkills = useMemo(() => skillsForMissedMates(gameReview.flatMap(r => r.missed)), [gameReview]);
+  const todayPlan: PlanItem[] = useMemo(() => (hydrated ? dailyPlan(attempts, new Date(), LESSONS, gameSkills) : []), [hydrated, attempts, gameSkills]);
   const stats = { won: records.filter(x => x.result === "black").length, lost: records.filter(x => x.result === "white").length };
 
   function saveMatch(result: GameRecord["result"], moveList: Move[]) {
@@ -398,7 +417,7 @@ export default function RivalApp() {
           {view === "learn" && <>
             <div className="page-header"><div><p className="eyebrow"><span>―</span> STUDY / 学び</p><h1>将棋を、深く知る。</h1><p>駒の動きから戦型の構想へ。初めの一手を丁寧に。</p></div><div className="header-stats"><span><Check size={15} /> {completed.length} / {LESSONS.length} 修了</span></div></div>
             <div className="learning-progress"><div><span>YOUR PROGRESS</span><strong>基礎コース</strong></div><div className="progress-track"><span style={{ width: `${(completed.length / LESSONS.length) * 100}%` }} /></div><strong>{Math.round(completed.length / LESSONS.length * 100)}%</strong></div>
-            {todayPlan.length > 0 && <section className="panel daily-plan"><div className="daily-plan-head"><strong>今日の課題</strong><small>復習・苦手・新しいレッスンから最大3問。記録はこの端末にだけ保存されます。</small></div><div className="daily-plan-list">{todayPlan.map(item => { const index = LESSONS.findIndex(l => l.id === item.lessonId); const l = LESSONS[index]; return <button key={item.lessonId} type="button" onClick={() => chooseLesson(index)} className={`daily-plan-item plan-${item.reason}`}><span>{item.reason === "review" ? "復習" : item.reason === "weak" ? "苦手" : "新しい"}</span><strong>{l.title}</strong><ChevronRight size={15} /></button>; })}</div><p className="daily-plan-note">復習は同じ問題の解き直しです（仮の仕組み）。初見の練習問題は準備中です。</p></section>}
+            {todayPlan.length > 0 && <section className="panel daily-plan"><div className="daily-plan-head"><strong>今日の課題</strong><small>復習・苦手・新しいレッスンから最大3問。記録はこの端末にだけ保存されます。</small></div><div className="daily-plan-list">{todayPlan.map(item => { const index = LESSONS.findIndex(l => l.id === item.lessonId); const l = LESSONS[index]; return <button key={item.lessonId} type="button" onClick={() => chooseLesson(index)} className={`daily-plan-item plan-${item.reason}`}><span>{item.reason === "review" ? "復習" : item.reason === "weak" ? "苦手" : item.reason === "game" ? "実戦" : "新しい"}</span><strong>{l.title}</strong><ChevronRight size={15} /></button>; })}</div><p className="daily-plan-note">復習は同じ問題の解き直しです（仮の仕組み）。初見の練習問題は準備中です。</p></section>}
             <div className="learn-layout"><section className="panel lesson-list-panel"><div className="list-heading"><h2>学びの道のり</h2><p>レッスンを選んで始めよう</p></div><div className="lesson-list">
               {LESSONS.map((item, index) => <button key={item.id} onClick={() => chooseLesson(index)} className={`lesson-item ${lessonIndex === index ? "lesson-selected" : ""}`}><span className={`lesson-index ${completed.includes(item.id) ? "lesson-done" : ""}`}>{completed.includes(item.id) ? <Check size={15} /> : `${index + 1}`}</span><span className="lesson-info"><small>STAGE {item.stage} · {item.category}</small><strong>{item.title}</strong><span>{item.summary}</span></span><ChevronRight size={16} /></button>)}
             </div><div className="roadmap-heading"><Layers3 size={17} /> この先の学び <span>COMING SOON</span></div><div className="roadmap-list">{ROADMAP.map(item => <div className="roadmap-item" key={item.stage}><span>{item.stage}</span><div><strong>{item.title}</strong><small>{item.summary}</small></div><span className="roadmap-lock">準備中</span></div>)}</div></section>
@@ -418,6 +437,7 @@ export default function RivalApp() {
           {view === "history" && <>
             <div className="page-header"><div><p className="eyebrow"><span>―</span> ARCHIVE / 棋譜</p><h1>指した一手が、残っていく。</h1><p>自分の将棋を、いつでも振り返れるように。</p></div></div>
             <div className="history-cards"><div className="panel history-stat"><span><Swords size={19} /></span><strong>{records.length}</strong><small>対局数</small></div><div className="panel history-stat"><span><Trophy size={19} /></span><strong>{stats.won}</strong><small>勝利数</small></div><div className="panel history-stat"><span><BookOpen size={19} /></span><strong>{completed.length}</strong><small>修了レッスン</small></div><div className="panel history-stat"><span><Zap size={19} /></span><strong>{records.length ? Math.round(stats.won / records.length * 100) : 0}%</strong><small>勝率</small></div></div>
+            {gameReview.some(r => r.missed.length > 0) && <section className="panel game-review"><div className="daily-plan-head"><strong>最近の対局の振り返り</strong><small>あなたの手番で、詰ませる手があった局面です（1手詰・3手詰）。「今日の課題」に関連する教材を入れています。</small></div><ul className="game-review-list">{gameReview.flatMap(r => r.missed.map(m => ({ r, m }))).slice(0, 5).map(({ r, m }) => <li key={`${r.recordId}-${m.ply}`}><span>{m.plies}手詰</span><div><strong>{new Date(r.date).toLocaleDateString("ja-JP")}の対局・第{m.ply + 1}手</strong><small>詰ませる手: {m.solutionNames.join("、")}</small></div></li>)}</ul>{gameReview.reduce((n, r) => n + r.missed.length, 0) > 5 && <p className="daily-plan-note">ほか {gameReview.reduce((n, r) => n + r.missed.length, 0) - 5} 件。まずは上の局面から確認しよう。</p>}<button type="button" className="secondary-button" onClick={() => setView("learn")}><BookOpen size={15} /> 今日の課題へ</button></section>}
             <section className="panel history-panel"><div className="history-title"><div><p className="section-eyebrow">MATCH ARCHIVE</p><h2>対局の記録</h2></div><span><History size={17} /> 最近の対局</span></div>
               {!records.length ? <div className="empty-history"><span><Clock3 size={28} /></span><h3>ここから、君の棋譜が始まる。</h3><p>棋友と一局指してみよう。対局が終わると記録がここに残るよ。</p><button className="primary-button" onClick={() => setView("play")}>はじめての対局 <ArrowRight size={16} /></button></div> : <div className="record-list">{records.slice(0, 30).map(record => <div className="record-line" key={record.id}><div className={`record-symbol ${record.result === "black" ? "record-win" : "record-loss"}`}>{record.result === "black" ? <Trophy size={18} /> : <Flag size={18} />}</div><div><strong>{record.result === "black" ? "勝利" : record.result === "white" ? "敗北" : "引き分け"} <small>vs 棋友</small></strong><span>{record.moves.length}手 · {record.moves.slice(0, 6).join("  ")}{record.moves.length > 6 ? " …" : ""}</span></div><time>{new Date(record.date).toLocaleDateString("ja-JP")}</time></div>)}</div>}
               <p className="history-footnote"><ShieldCheck size={15} /> 対局と学習の記録はブラウザに自動保存されます。認証された環境ではクラウド同期も試みます。</p>

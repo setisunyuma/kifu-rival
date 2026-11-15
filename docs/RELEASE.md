@@ -23,7 +23,7 @@
 ```sh
 git fetch origin main && git checkout <candidate-sha>
 npm ci
-npm run release:plan -- --base <released>
+npm run release:plan -- --base <released> --out outputs/plan-<short-sha>.json
 ```
 
 | 判定 | 意味 | 次の行動 |
@@ -31,7 +31,7 @@ npm run release:plan -- --base <released>
 | `none` | 文書・テスト・CI・リポジトリ管理用スクリプトのみ（明示リストに載ったもの）。配信物は変わらない | 配備は任意 |
 | `app` | 画面・将棋ロジック・教材の変更 | 通常リリース。§2へ |
 | `runtime` | API・Worker・依存関係・ビルド設定・配信ファイルの削除・**どの規則にも当てはまらない未分類ファイル**・`package.json`のビルド／起動／インストール系スクリプトやnpmのライフサイクルフック（`preinstall`・`postinstall`・`prepare`等）の変更 | `npm run build`と`npm start`でビルド済みWorkerを確認してから§2へ |
-| `data` | D1マイグレーション・スキーマ・`drizzle.config.ts`・hosting binding・認証・localStorageキーの変更 | **中断**（終了コード2）。§データ の条件をユーザーが承認するまで配備しない |
+| `data` | D1マイグレーション・スキーマ・`drizzle.config.ts`・hosting binding・認証。加えて、配信コード（`app/`・`lib/`・`components/`・`hooks/`）の**中身**で、端末の保存データに関わる変更（`kifu-rival.v*`・`STORAGE_KEY`・`localStorage`のキーの変更、`removeItem`・`clear`・`deleteDatabase`の追加） | **中断**（終了コード2）。§データ の条件をユーザーが承認するまで配備しない |
 
 判定は**安全側**に倒す。分類規則に載っていない新しいファイルは`runtime`として確認対象にする。`package.json`は、依存関係・`engines`等が不変で、かつ変更されたスクリプトがすべて管理用（`lint`・`test`・`test:*`・`ledger:check`・`public:check`・`release:*`）の場合だけ`none`になる。
 
@@ -75,33 +75,44 @@ node scripts/release.mjs preflight outputs/release-<short-sha>.json --root <site
 
    | 種類 | ゲート | 誰が保証するか |
    | --- | --- | --- |
+   | 自動 | `release:plan`の結果（`--release-plan`）が、このマニフェストと同じSHAに対するもの | ツールが検証 |
+   | 自動 | GitHub側のチェックアウト（`--github-root`）がマニフェストと一致する | ツールが検証 |
+   | 自動 | シンボリックリンク・特殊ファイルがない（このツールでは検証できないため、あれば止める） | ツールが検証 |
    | 自動 | 上書き・削除のすべてに、現在のハッシュに紐づく判断がある（判断の後にSiteが変われば無効） | ツールが検証 |
    | 自動 | rsyncの空実行が予測（追加・上書き・削除）と一致する | ツールが検証 |
    | 自動 | バックアップのスナップショットが、今のSiteと一致する（バックアップ後の変更を検出） | ツールが検証 |
    | 自動 | バックアップのアーカイブを一時ディレクトリに展開すると、スナップショットと一致する | ツールが検証 |
-   | 手動 | 同期がD1・hosting binding・認証などの`data`判定のパスを含む場合、承認記録（`approvedBy`、`approvedOn`、`scope`、`d1Backup`、`rollbackPlan`）がそろっている | **人**。ツールは記録がそろっているかだけを確認し、内容の真偽は確認しない |
+   | 手動 | このリリースの判定が`data`の場合、承認記録（`approvedBy`、`approvedOn`、`scope`、`d1Backup`、`rollbackPlan`）がそろっている。判定は「同期するパス」「Site側とGitHub側の中身の比較（保存キー等）」「`release:plan`の判定」のうち最も重いもので、どれか1つでも`data`なら必要。迂回する指定はない | **人**。ツールは記録がそろっているかだけを確認し、内容の真偽は確認しない |
    | 手動（ツール外） | Site versionを控えた、D1のバックアップを取った（`data`の場合）、デプロイ後のPrivate設定・iPhone確認 | **人**。§0・§4・§5で記録する |
 
 6. **同期方法の事前確認とゲートの実行**:
 
 ```sh
-rsync -a --checksum --delete --dry-run --itemize-changes \
-  --exclude .git --exclude node_modules --exclude .sites-runtime --exclude .wrangler \
-  <github-checkout>/ <sites-checkout>/ > outputs/rsync-dry-run.txt
+EXC=$(node scripts/release.mjs excludes)   # 検証対象外のパスを、同期でも触らないための除外指定
+rsync -a --checksum --delete --dry-run --itemize-changes $EXC <github-checkout>/ <sites-checkout>/ > outputs/rsync-dry-run.txt
 node scripts/release.mjs preflight outputs/release-<short-sha>.json --root <sites-checkout> \
+  --github-root <github-checkout> --release-plan outputs/plan-<short-sha>.json \
   --decisions decisions.json --rsync-dry-run outputs/rsync-dry-run.txt \
   --backup-snapshot outputs/site-before-<date>.json --backup-archive outputs/site-backup-<date>.tgz \
   [--data-approval approval.json]
 ```
 
-   `--checksum`は内容で比較させるため（日時とサイズだけの比較では内容の変更を見逃すことがある）。`GATES PASSED`が出たときだけ次へ進む。
+   `--checksum`は内容で比較させるため（日時とサイズだけの比較では内容の変更を見逃すことがある）。`GATES PASSED`が出たときだけ次へ進む。同期（手順7）にも**同じ`$EXC`**を必ず付ける。
 
-7. **同期**: 手順6と同じ引数から`--dry-run --itemize-changes`を外して実行する。
+   **検証の対象外（ツールは中身を確認しない）**: 次のパスはハッシュ照合の対象外。代わりに、rsyncの除外指定で**同期の際に削除も上書きもしない**。tarのバックアップには含まれるが、中身の照合はしない。`preflight`は見つかったものを一覧で表示する。
+   - ディレクトリ: `.git/`、`node_modules/`、`dist/`、`.next/`、`.vinext/`、`out/`、`.wrangler/`（ローカルのD1状態を含む）、`.sites-runtime/`、`coverage/`、`outputs/`、`work/`、`.agents/`、`.codex/`、`.yarn/`、`.pnp/`
+   - ファイル: `.env*`、`.dev.vars*`、`*.pem`、`.DS_Store`、`next-env.d.ts`、`*.tsbuildinfo`、`*-debug.log*`
+   - シンボリックリンク・特殊ファイル: 扱えないため、見つかった時点で**停止**する（Site側・GitHub側とも）。
+   除外指定を付け忘れると、rsyncの空実行に予測外の削除が出て、手順6のゲートで止まる。
+
+7. **同期**: 手順6と同じ引数（`$EXC`を含む）から`--dry-run --itemize-changes`を外して実行する。
 8. **同期後の照合**: `node scripts/release.mjs verify outputs/release-<short-sha>.json --root <sites-checkout>`。`verify: OK`以外ならデプロイしない。
 9. **復旧の確認**: 問題があれば`outputs/site-backup-<date>.tgz`を展開し、`node scripts/release.mjs verify outputs/site-before-<date>.json --root <復元先>`で、同期前と完全に同じに戻ったことを確かめる。
 10. Sitesソースにコミットする。メッセージに`GitHub <full-sha>`を含め、`decisions.json`の要約を`SESSION_LOG`へ残す。
 
 2026-11-15のリハーサル（rsync 3.2.7、GitHubの古いSHAを展開したSite＋Siteだけのファイル1件＋Site側の編集1件）: 判断もバックアップもない段階では`preflight`がSTOP。判断を記録し、`tar`のバックアップとスナップショットを用意すると全ゲートを通過（`GATES PASSED`）。同期後の`verify`はOK、同期後の改ざんは`verify`で検出、バックアップから同期前のハッシュどおりに復元できた。バックアップ後にSiteを編集すると、判断の無効化・空実行との不一致・スナップショットの不一致で再びSTOPした。
+
+第2回のリハーサル（同日）: Site側の`app/rival-app.tsx`だけが古い保存キー（`kifu-rival.v0`）のとき、`release:plan`（GitHub側の履歴）は`app`判定だったが、`preflight`の中身の比較が`data`と判定し、承認記録がない間は停止した。Site側のシンボリックリンクでも停止した。承認記録をそろえると通過し、同期後もSite側の`.dev.vars`と`.wrangler/state`は除外指定によって残った。
 
 ## 4. ビルド・Privateデプロイ（配備担当）
 

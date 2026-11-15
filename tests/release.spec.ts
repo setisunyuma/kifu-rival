@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { classifyChanges, compareManifest, crossCheckDryRun, evaluateGates, isMaintenanceScript, planSync, listReleaseFiles, sameDependencies, servingScriptsUnchanged, sha256 } from "../scripts/release.mjs";
+import { classifyChanges, compareManifest, crossCheckDryRun, evaluateGates, isMaintenanceScript, planSync, rsyncExcludes, scanTree, storageChange, listReleaseFiles, sameDependencies, servingScriptsUnchanged, sha256 } from "../scripts/release.mjs";
 
 const m = (path: string, status = "M") => ({ status, path });
 
@@ -170,7 +170,8 @@ test("post-sync verify: tampering after the sync is detected by the hash check",
 // ---------------------------------------------------------------------------
 const okPlan = planSync(github, { ...github });
 const okDry = crossCheckDryRun(okPlan, "");
-const allOk = { plan: okPlan, dryRun: okDry, snapshotMatchesSite: true, archiveMatchesSnapshot: true, dataApproval: null };
+const allOk = { plan: okPlan, dryRun: okDry, snapshotMatchesSite: true, archiveMatchesSnapshot: true, dataApproval: null,
+  releasePlan: { head: "abc", level: "none" }, manifestCommit: "abc", githubMatchesManifest: true, contentData: [], unhandled: [] };
 
 test("gates: everything verified passes, and the manual gate is reported as not required", () => {
   const g = evaluateGates(allOk);
@@ -197,4 +198,67 @@ test("gates: a sync touching data-level paths requires a complete approval recor
   const full = evaluateGates({ ...base, dataApproval: { approvedBy: "user", approvedOn: "2026-11-15", scope: "add table", d1Backup: "export taken", rollbackPlan: "restore export" } });
   assert.equal(full.passed, true);
   assert.match(full.manual[0].gate, /not verified/);
+});
+
+// ---------------------------------------------------------------------------
+// Review of PR #9, round 4: data changes must not bypass the approval gate by content,
+// and nothing may be deleted or overwritten without being verified.
+// ---------------------------------------------------------------------------
+const approval = { approvedBy: "user", approvedOn: "2026-11-15", scope: "rename key", d1Backup: "n/a (device data)", rollbackPlan: "migrate back" };
+
+test("content check: storage key changes and new destructive storage calls are data changes", () => {
+  assert.equal(storageChange('const STORAGE_KEY = "kifu-rival.v1";', 'const STORAGE_KEY = "kifu-rival.v2";').changed, true);
+  assert.equal(storageChange('localStorage.getItem("a")', 'localStorage.getItem("b")').changed, true);
+  assert.equal(storageChange('localStorage.getItem("a")', 'localStorage.getItem("a"); localStorage.removeItem("a")').changed, true);
+  assert.equal(storageChange("x", "x; indexedDB.deleteDatabase('db')").changed, true);
+  assert.equal(storageChange('const a = 1; localStorage.getItem("a")', 'const a = 2; localStorage.getItem("a")').changed, false);
+  assert.equal(storageChange(null, 'const STORAGE_KEY = "kifu-rival.v1";').changed, true, "a new file that introduces a key");
+  const plan = classifyChanges([{ status: "M", path: "lib/progress.ts" }], { contentData: [{ path: "lib/progress.ts", reasons: ["storage keys changed"] }] });
+  assert.equal(plan.level, "data", "release:plan uses the same content check for any served file");
+});
+
+test("gates: a storage-key change in ordinary app code needs the data approval (content, not path)", () => {
+  const site = { ...github }; const gh = { ...github, "app/rival-app.tsx": H("v2") };
+  const plan = planSync(gh, { ...site, "app/rival-app.tsx": H("v1") }, [{ path: "app/rival-app.tsx", action: "overwrite", siteSha256: H("v1"), reason: "r", decidedBy: "u" }]);
+  const base = { ...allOk, plan, dryRun: crossCheckDryRun(plan, ">f.st...... app/rival-app.tsx\n"), contentData: [{ path: "app/rival-app.tsx", reasons: ["storage keys changed"] }] };
+  const g = evaluateGates(base);
+  assert.equal(g.level, "data", "path alone says app; content says data");
+  assert.equal(g.passed, false, "no approval -> stop");
+  assert.match(g.manual[0].detail, /app\/rival-app\.tsx: storage keys changed/);
+  assert.equal(evaluateGates({ ...base, dataApproval: approval }).passed, true);
+});
+
+test("gates: the release plan must belong to this commit, and its data level cannot be bypassed", () => {
+  assert.equal(evaluateGates({ ...allOk, releasePlan: null }).passed, false, "plan is mandatory");
+  assert.equal(evaluateGates({ ...allOk, releasePlan: { head: "other", level: "none" } }).passed, false, "plan for another commit");
+  const fromPlan = evaluateGates({ ...allOk, releasePlan: { head: "abc", level: "data" } });
+  assert.equal(fromPlan.level, "data");
+  assert.equal(fromPlan.passed, false, "plan says data although this sync looks harmless");
+  assert.equal(evaluateGates({ ...allOk, releasePlan: { head: "abc", level: "data" }, dataApproval: approval }).passed, true);
+  assert.equal(evaluateGates({ ...allOk, githubMatchesManifest: false }).passed, false, "GitHub checkout differs from the manifest");
+});
+
+test("scan: ignored, symlinked and special paths are reported, never silently dropped", () => {
+  const root = mkdtempSync(join(tmpdir(), "kifu-scan-"));
+  try {
+    mkdirSync(join(root, "lib")); mkdirSync(join(root, ".wrangler", "state"), { recursive: true }); mkdirSync(join(root, "node_modules"));
+    writeFileSync(join(root, "lib", "a.ts"), "a"); writeFileSync(join(root, ".dev.vars"), "SECRET=x"); writeFileSync(join(root, ".wrangler", "state", "d1.sqlite"), "db");
+    symlinkSync(join(root, "lib", "a.ts"), join(root, "lib", "link.ts"));
+    const scan = scanTree(root);
+    assert.deepEqual(scan.files, ["lib/a.ts"]);
+    assert.deepEqual(scan.skipped.map(x => `${x.reason}:${x.path}`).sort(), ["ignored-dir:.wrangler/", "ignored-dir:node_modules/", "ignored-file:.dev.vars", "symlink:lib/link.ts"]);
+    const unhandled = scan.skipped.filter(x => x.reason === "symlink" || x.reason === "special");
+    assert.equal(evaluateGates({ ...allOk, unhandled }).passed, false, "a symlink stops the release");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rsync excludes cover every ignored path, so local data such as .wrangler state or .dev.vars is never deleted", () => {
+  const ex = rsyncExcludes();
+  for (const d of [".git/", "node_modules/", ".wrangler/", ".sites-runtime/", "dist/", "outputs/"]) assert.ok(ex.includes(d), d);
+  for (const f of [".env*", ".dev.vars*", "*.pem"]) assert.ok(ex.includes(f), f);
+  // A dry-run that deletes an ignored file means the excludes were not applied: stop.
+  const plan = planSync(github, { ...github });
+  assert.deepEqual(crossCheckDryRun(plan, "*deleting   .dev.vars\n").unexpectedDeletions, [".dev.vars"]);
 });

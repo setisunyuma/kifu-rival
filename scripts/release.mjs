@@ -63,7 +63,7 @@ const LEVELS = ["none", "app", "runtime", "data"];
 
 /**
  * @param {{status: string, path: string}[]} changes  git name-status entries
- * @param {{storageKeyChanged?: boolean, packageDependenciesUnchanged?: boolean, packageScriptsServingUnchanged?: boolean}} [signals]
+ * @param {{storageKeyChanged?: boolean, packageDependenciesUnchanged?: boolean, packageScriptsServingUnchanged?: boolean, contentData?: {path: string, reasons: string[]}[]}} [signals]
  */
 export function classifyChanges(changes, signals = {}) {
   const entries = changes.map(({ status, path }) => {
@@ -79,6 +79,7 @@ export function classifyChanges(changes, signals = {}) {
   if (signals.storageKeyChanged) {
     entries.push({ status: "M", path: "app/rival-app.tsx", level: "data", reason: "localStorage key changed (kifu-rival.v*)" });
   }
+  for (const c of signals.contentData ?? []) entries.push({ status: "M", path: c.path, level: "data", reason: `content: ${c.reasons.join("; ")}` });
   const level = entries.reduce((max, e) => LEVELS.indexOf(e.level) > LEVELS.indexOf(max) ? e.level : max, "none");
   const decision = {
     none: "No served change. A Site deploy is optional.",
@@ -89,6 +90,33 @@ export function classifyChanges(changes, signals = {}) {
   return { level, decision, entries };
 }
 
+/** Served source files whose content can change what is stored on the user's device. */
+export const SERVED_CODE = p => /^(app|lib|components|hooks)\/.+\.(ts|tsx|js|jsx|mjs)$/.test(p);
+
+function storageFacts(text) {
+  if (text === null || text === undefined) return { keys: new Set(), destructive: 0 };
+  const keys = new Set();
+  for (const m of text.matchAll(/STORAGE_KEY\s*=\s*["'`]([^"'`]+)["'`]/g)) keys.add(m[1]);
+  for (const m of text.matchAll(/(?:local|session)Storage\.(?:getItem|setItem|removeItem)\(\s*["'`]([^"'`]+)["'`]/g)) keys.add(m[1]);
+  for (const m of text.matchAll(/kifu-rival\.v\d+/g)) keys.add(m[0]);
+  const destructive = (text.match(/(?:local|session)Storage\.(?:removeItem|clear)\(|indexedDB\.deleteDatabase\(/g) || []).length;
+  return { keys, destructive };
+}
+
+/**
+ * Content check for on-device data (localStorage etc.). A change of storage keys, or new
+ * removeItem/clear/deleteDatabase calls, is a data change even though the path is ordinary
+ * app code. Used by both `plan` (Git diff) and `preflight` (Site vs GitHub content).
+ */
+export function storageChange(before, after) {
+  const a = storageFacts(before), b = storageFacts(after);
+  const reasons = [];
+  const removed = [...a.keys].filter(k => !b.keys.has(k)), added = [...b.keys].filter(k => !a.keys.has(k));
+  if (removed.length || added.length) reasons.push(`storage keys changed (removed: ${removed.join(", ") || "-"}; added: ${added.join(", ") || "-"})`);
+  if (b.destructive > a.destructive) reasons.push("new removeItem/clear/deleteDatabase call");
+  return { changed: reasons.length > 0, reasons };
+}
+
 /** Paths that are generated or local-only and never part of a release. Mirrors .gitignore. */
 const IGNORED_DIRS = new Set([".git", "node_modules", "dist", ".next", ".vinext", "out", ".wrangler", ".sites-runtime", "coverage", "outputs", "work", ".agents", ".codex", ".yarn", ".pnp"]);
 const IGNORED_FILE = name => name === ".DS_Store" || name === "next-env.d.ts" || name.endsWith(".tsbuildinfo")
@@ -96,19 +124,37 @@ const IGNORED_FILE = name => name === ".DS_Store" || name === "next-env.d.ts" ||
 
 export function sha256(buffer) { return createHash("sha256").update(buffer).digest("hex"); }
 
-/** List files under root that a release would contain (POSIX-style relative paths). */
-export function listReleaseFiles(root) {
-  const out = [];
+/**
+ * Walk a tree. `files` are hashed and verified; `skipped` lists everything that is NOT
+ * verified, with the reason, so nothing is silently left out:
+ * - "ignored-dir" / "ignored-file": generated, local or secret paths (mirrors .gitignore).
+ *   rsync must exclude exactly these (see rsyncExcludes) so a sync never deletes or
+ *   overwrites them; they are in the tar backup but their contents are not hash-checked.
+ * - "symlink" / "special": not handled by the release tooling at all; preflight stops.
+ */
+export function scanTree(root) {
+  const files = [], skipped = [];
+  const rel = full => relative(root, full).split(sep).join("/");
   const walk = dir => {
     for (const name of readdirSync(dir).sort()) {
       const full = join(dir, name);
       const stat = lstatSync(full);
-      if (stat.isDirectory()) { if (!IGNORED_DIRS.has(name)) walk(full); }
-      else if (stat.isFile() && !IGNORED_FILE(name)) out.push(relative(root, full).split(sep).join("/"));
+      if (stat.isSymbolicLink()) skipped.push({ path: rel(full), reason: "symlink" });
+      else if (stat.isDirectory()) { if (IGNORED_DIRS.has(name)) skipped.push({ path: rel(full) + "/", reason: "ignored-dir" }); else walk(full); }
+      else if (stat.isFile()) { if (IGNORED_FILE(name)) skipped.push({ path: rel(full), reason: "ignored-file" }); else files.push(rel(full)); }
+      else skipped.push({ path: rel(full), reason: "special" });
     }
   };
   walk(root);
-  return out;
+  return { files, skipped };
+}
+
+/** List files under root that a release would contain (POSIX-style relative paths). */
+export function listReleaseFiles(root) { return scanTree(root).files; }
+
+/** rsync exclude patterns matching exactly what scanTree skips as ignored. */
+export function rsyncExcludes() {
+  return [...[...IGNORED_DIRS].map(d => `${d}/`), ".DS_Store", "next-env.d.ts", "*.tsbuildinfo", ".env*", ".dev.vars*", "*.pem", "*-debug.log*"];
 }
 
 /** @param {Record<string,string>} expected @param {Record<string,string>} actual */
@@ -174,8 +220,9 @@ function snapshot(args) {
   const out = option(args, "--out");
   if (!out) throw new Error("snapshot requires --out <file>");
   const files = hashTree(root);
-  writeFileSync(out, JSON.stringify({ schema: MANIFEST_SCHEMA, repository: "snapshot", commit: `snapshot of ${root}`, files }, null, 2) + "\n");
-  console.log(`snapshot: ${Object.keys(files).length} files of ${root} -> ${out}`);
+  const { skipped } = scanTree(root);
+  writeFileSync(out, JSON.stringify({ schema: MANIFEST_SCHEMA, repository: "snapshot", commit: `snapshot of ${root}`, files, notVerified: skipped }, null, 2) + "\n");
+  console.log(`snapshot: ${Object.keys(files).length} files of ${root} -> ${out}; not hash-verified: ${skipped.map(x => `${x.path} (${x.reason})`).join(", ") || "none"}`);
 }
 
 /** Data-level paths in the sync itself (add/overwrite/delete), using the release classification. */
@@ -191,9 +238,21 @@ const APPROVAL_FIELDS = ["approvedBy", "approvedOn", "scope", "d1Backup", "rollb
  * can only be checked for a complete record, so they are reported separately and never
  * described as verified.
  */
-export function evaluateGates({ plan, dryRun, snapshotMatchesSite, archiveMatchesSnapshot, dataApproval }) {
-  const level = syncLevel(plan);
+const LEVEL_ORDER = ["none", "app", "runtime", "data"];
+const maxLevel = (...levels) => levels.reduce((m, l) => (LEVEL_ORDER.indexOf(l) > LEVEL_ORDER.indexOf(m) ? l : m), "none");
+
+/**
+ * @param {{ plan: any, dryRun: any, snapshotMatchesSite: boolean | null, archiveMatchesSnapshot: boolean | null,
+ *   dataApproval: Record<string, string> | null, contentData?: {path: string, reasons: string[]}[],
+ *   releasePlan?: {head: string, level: string} | null, manifestCommit?: string | null,
+ *   githubMatchesManifest?: boolean | null, unhandled?: {path: string, reason: string}[] }} input
+ */
+export function evaluateGates({ plan, dryRun, snapshotMatchesSite, archiveMatchesSnapshot, dataApproval, contentData = [], releasePlan = null, manifestCommit = null, githubMatchesManifest = null, unhandled = [] }) {
+  const level = maxLevel(syncLevel(plan), contentData.length ? "data" : "none", releasePlan?.level ?? "none");
   const automated = [
+    { gate: "release plan was produced for this exact commit", ok: !!releasePlan && releasePlan.head === manifestCommit, detail: releasePlan ? `plan head ${String(releasePlan.head).slice(0, 12)}, manifest ${String(manifestCommit).slice(0, 12)}, plan level ${releasePlan.level}` : "no --release-plan given" },
+    { gate: "GitHub checkout matches the manifest", ok: githubMatchesManifest === true, detail: githubMatchesManifest === null ? "no --github-root given" : "" },
+    { gate: "no symlinks or special files (unverifiable by this tool)", ok: unhandled.length === 0, detail: unhandled.map(u => `${u.reason}: ${u.path}`).join(", ") },
     { gate: "file differences decided", ok: plan.safe, detail: `${plan.unresolved.length} unresolved, ${plan.stale.length} stale` },
     { gate: "rsync dry-run matches the plan", ok: !!dryRun && dryRun.ok, detail: dryRun ? JSON.stringify(dryRun) : "no --rsync-dry-run given" },
     { gate: "backup snapshot matches the Site now", ok: snapshotMatchesSite === true, detail: snapshotMatchesSite === null ? "no --backup-snapshot given" : "" },
@@ -201,7 +260,8 @@ export function evaluateGates({ plan, dryRun, snapshotMatchesSite, archiveMatche
   ];
   const missing = dataApproval ? APPROVAL_FIELDS.filter(f => !String(dataApproval[f] ?? "").trim()) : APPROVAL_FIELDS;
   const manual = [
-    { gate: "data change approval recorded (presence only, not verified)", required: level === "data", ok: level !== "data" || missing.length === 0, detail: level === "data" ? (missing.length ? `missing: ${missing.join(", ")}` : "record present") : "not required (no data-level path in this sync)" },
+    { gate: "data change approval recorded (presence only, not verified)", required: level === "data", ok: level !== "data" || missing.length === 0,
+      detail: level === "data" ? `${missing.length ? `missing: ${missing.join(", ")}` : "record present"}; why data: ${[syncLevel(plan) === "data" ? "data-level path in the sync" : "", ...contentData.map(c => `${c.path}: ${c.reasons.join("; ")}`), releasePlan?.level === "data" ? "release plan says data" : ""].filter(Boolean).join(" | ")}` : "not required (no data-level path, content or plan)" },
   ];
   return { level, automated, manual, passed: automated.every(g => g.ok) && manual.every(g => g.ok) };
 }
@@ -217,7 +277,7 @@ function archiveMatches(archive, expected) {
 }
 
 function preflight(args) {
-  const valueOptions = ["--root", "--decisions", "--rsync-dry-run", "--out", "--backup-snapshot", "--backup-archive", "--data-approval"].map(o => option(args, o));
+  const valueOptions = ["--root", "--decisions", "--rsync-dry-run", "--out", "--backup-snapshot", "--backup-archive", "--data-approval", "--github-root", "--release-plan"].map(o => option(args, o));
   const file = args.find(a => !a.startsWith("--") && !valueOptions.includes(a));
   if (!file) throw new Error("preflight requires <manifest.json>");
   const data = JSON.parse(readFileSync(file, "utf8"));
@@ -225,7 +285,8 @@ function preflight(args) {
   const root = resolve(option(args, "--root") || ".");
   const read = name => { const f = option(args, name); return f ? readFileSync(f, "utf8") : null; };
   const decisions = JSON.parse(read("--decisions") ?? "[]");
-  const site = hashTree(root);
+  const scan = scanTree(root);
+  const site = Object.fromEntries(scan.files.map(p => [p, sha256(readFileSync(join(root, p)))]));
   const plan = planSync(data.files, site, decisions);
   const dryRunText = read("--rsync-dry-run");
   const dryRun = dryRunText === null ? null : crossCheckDryRun(plan, dryRunText);
@@ -234,25 +295,42 @@ function preflight(args) {
   const snapshotMatchesSite = snapshot ? compareManifest(snapshot, site).ok : null;
   const archive = option(args, "--backup-archive");
   const archiveMatchesSnapshot = archive && snapshot ? archiveMatches(archive, snapshot) : archive ? false : null;
+  const githubRoot = option(args, "--github-root");
+  const githubScan = githubRoot ? scanTree(resolve(githubRoot)) : null;
+  const githubMatchesManifest = githubRoot ? compareManifest(data.files, Object.fromEntries(githubScan.files.map(p => [p, sha256(readFileSync(join(resolve(githubRoot), p)))]))).ok : null;
+  // Content check: what the sync would change in served code, Site (before) vs GitHub (after).
+  const fileText = (dir, p) => { try { return readFileSync(join(dir, p), "utf8"); } catch { return null; } };
+  const contentData = githubRoot
+    ? [...plan.add, ...plan.overwrite, ...plan.delete].filter(SERVED_CODE)
+      .map(p => ({ path: p, ...storageChange(fileText(root, p), fileText(resolve(githubRoot), p)) })).filter(c => c.changed)
+    : [];
+  const unhandled = [...scan.skipped, ...(githubScan?.skipped ?? [])].filter(x => x.reason === "symlink" || x.reason === "special");
+  const releasePlanText = read("--release-plan");
   const approvalText = read("--data-approval");
-  const gates = evaluateGates({ plan, dryRun, snapshotMatchesSite, archiveMatchesSnapshot, dataApproval: approvalText ? JSON.parse(approvalText) : null });
+  const gates = evaluateGates({ plan, dryRun, snapshotMatchesSite, archiveMatchesSnapshot,
+    dataApproval: approvalText ? JSON.parse(approvalText) : null, contentData,
+    releasePlan: releasePlanText ? JSON.parse(releasePlanText) : null, manifestCommit: data.commit, githubMatchesManifest, unhandled });
 
   console.log(`preflight (read-only): ${root} -> ${data.repository}@${data.commit}`);
-  console.log(`  add ${plan.add.length}, overwrite ${plan.overwrite.length}, delete ${plan.delete.length}; level of this sync: ${gates.level}`);
+  console.log(`  add ${plan.add.length}, overwrite ${plan.overwrite.length}, delete ${plan.delete.length}; level of this release: ${gates.level}`);
   for (const u of plan.unresolved) console.log(`  UNRESOLVED ${u.action}: ${u.path}`);
   for (const p of plan.stale) console.log(`  stale decision (file changed or gone since review): ${p}`);
   console.log("  automated gates (verified by this tool):");
   for (const g of gates.automated) console.log(`    [${g.ok ? "ok" : "NG"}] ${g.gate}${g.detail ? ` — ${g.detail}` : ""}`);
   console.log("  manual gates (a person is responsible; the tool only checks that a record exists):");
   for (const g of gates.manual) console.log(`    [${g.ok ? "ok" : "NG"}] ${g.gate} — ${g.detail}`);
+  const protectedItems = scan.skipped.filter(x => x.reason === "ignored-dir" || x.reason === "ignored-file");
+  console.log(`  not verified, kept untouched by the rsync excludes (contents only in the tar backup): ${protectedItems.map(x => x.path).join(", ") || "none"}`);
   const out = option(args, "--out");
-  if (out) writeFileSync(out, JSON.stringify({ manifest: data.commit, root, plan, gates,
+  if (out) writeFileSync(out, JSON.stringify({ manifest: data.commit, root, plan, gates, notVerified: scan.skipped,
     decisionTemplate: plan.unresolved.map(u => ({ ...u, reason: "", decidedBy: "" })) }, null, 2) + "\n");
   console.log(gates.passed
     ? "preflight: GATES PASSED. The sync may proceed. This does NOT confirm the post-deploy checks (private access, iPhone smoke test) in docs/RELEASE.md §4-5."
-    : "preflight: STOP — do not sync. Resolve every NG gate above (bring Site-only changes into GitHub by PR, record per-file decisions, take and verify the backup), then re-run.");
+    : "preflight: STOP — do not sync. Resolve every NG gate above, then re-run.");
   if (!gates.passed) process.exitCode = 3;
 }
+
+function excludes() { console.log(rsyncExcludes().map(p => `--exclude=${p}`).join(" ")); }
 
 function git(args, cwd) { return execFileSync("git", args, { cwd, encoding: "utf8" }); }
 function option(args, name) { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; }
@@ -285,11 +363,13 @@ function plan(args, root) {
   if (!base) throw new Error("plan requires --base <sha of the commit currently deployed>");
   const changes = git(["diff", "--name-status", "--no-renames", `${base}..${head}`], root).trim().split("\n").filter(Boolean)
     .map(line => { const [status, path] = line.split("\t"); return { status, path }; });
-  const appDiff = git(["diff", "-U0", `${base}..${head}`, "--", "app/rival-app.tsx"], root);
-  const storageKeyChanged = /^[-+].*STORAGE_KEY\s*=/m.test(appDiff);
+  const show = (rev, path) => { try { return git(["show", `${rev}:${path}`], root); } catch { return null; } };
+  const contentData = changes.filter(c => SERVED_CODE(c.path))
+    .map(c => ({ path: c.path, ...storageChange(show(base, c.path), show(head, c.path)) }))
+    .filter(c => c.changed);
   const pkgs = readPackages(base, head, root);
   const result = classifyChanges(changes, {
-    storageKeyChanged,
+    contentData,
     packageDependenciesUnchanged: pkgs ? sameDependencies(pkgs[0], pkgs[1]) : false,
     packageScriptsServingUnchanged: pkgs ? servingScriptsUnchanged(pkgs[0], pkgs[1]) : false,
   });
@@ -297,6 +377,8 @@ function plan(args, root) {
   console.log(`release plan ${base.slice(0, 12)}..${headSha.slice(0, 12)}: level=${result.level}`);
   for (const e of result.entries) console.log(`  [${e.level}] ${e.status} ${e.path} — ${e.reason}`);
   console.log(result.decision);
+  const out = option(args, "--out");
+  if (out) writeFileSync(out, JSON.stringify({ base, head: headSha, level: result.level, entries: result.entries }, null, 2) + "\n");
   if (result.level === "data") process.exitCode = 2;
 }
 
@@ -339,7 +421,8 @@ if (/release\.mjs$/.test(process.argv[1] ?? "") && import.meta.url === pathToFil
     else if (command === "verify") verify(args);
     else if (command === "snapshot") snapshot(args);
     else if (command === "preflight") preflight(args);
-    else throw new Error("Usage: node scripts/release.mjs plan|manifest|snapshot|preflight|verify (see header comment)");
+    else if (command === "excludes") excludes();
+    else throw new Error("Usage: node scripts/release.mjs plan|manifest|snapshot|preflight|excludes|verify (see header comment)");
   } catch (error) {
     console.error(`release: ${error.message}`);
     process.exitCode = 1;

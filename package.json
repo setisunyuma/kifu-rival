@@ -13,6 +13,9 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "ledger:check": "node scripts/check-ledger.mjs",
     "public:check": "node scripts/check-public-release.mjs",
+    "release:plan": "node scripts/release.mjs plan",
+    "release:manifest": "node scripts/release.mjs manifest",
+    "release:verify": "node scripts/release.mjs verify",
     "test:unit": "node scripts/test-unit.mjs",
     "db:generate": "drizzle-kit generate"
   },

@@ -29,13 +29,14 @@
 
 ## 非公開Sitesリリース（ChatGPT側担当）
 
-1. 対象コミットと変更IDを `SESSION_LOG` に記録し、未コミット差分がないことを確認する。
-2. Sitesの現在の公開状態とデータbindingを確認。
-3. Sites公式のソース取得／差分保存ワークフローと検証済みビルドを使う。手動でCloudflareへ同じWorkerを上書きしない。
-4. 非公開設定・ユーザーデータに変更がないことを確認し、必要に応じて公開版と対応コミットを記録する。
-5. スマホで対局盤、駒、成り、教材、会話、画面切替が使えることを確認する。失敗時は旧バージョンへ戻す道筋を明らかにし、問題を台帳へ書く。
+**正式な手順は [RELEASE.md](RELEASE.md)**（KIF-003）。要点は次のとおり。
 
-**Claude Code環境だけでChatGPT Sitesの公開権限があるとは限りません。** GitHub上での修正はまずPR/コミットとして提出し、ChatGPT Sitesの公開は必要な権限を持つ側で行います。デプロイの自動化は `KIF-003` で別途検証します。
+1. GitHub `main`の候補SHAについて `npm run release:plan -- --base <前回リリースSHA>` で変更を分類する。`data`判定（D1・hosting binding・認証・localStorageキー）は承認とバックアップがそろうまで配備しない。
+2. `npm run release:manifest` で候補SHAの全ファイルのハッシュを取り、Sitesソースへ反映したあと `release:verify` で一致を確認する。一致しなければデプロイしない。
+3. Sites公式のビルド経路でPrivateのままデプロイし、アクセス設定の事後確認とスマホでの動作確認を行う。手動でCloudflareへ同じWorkerを上書きしない。
+4. Site versionとGitHub SHAの対応を台帳とRELEASE.mdの記録表に残す。ロールバックはSiteの直前versionへ戻す。
+
+**Claude Code環境にはChatGPT Sitesの配備権限がない**（2026-11-15確認）。Claudeは候補SHA・分類・マニフェストの準備までを行い、配備は権限を持つ側が行う。
 
 ## GitHubへの移管（初回スナップショットの移管とCIは成功済み）
 

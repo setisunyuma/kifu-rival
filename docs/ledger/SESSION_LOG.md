@@ -116,3 +116,13 @@
 - Validation: `npm run test:unit` 33/33 PASS、`lint` PASS、`npx tsc --noEmit` PASS、`npm run build` PASS、`public:check` PASS、`ledger:check` PASS、`git diff --check` PASS。
 - Not editable via auto-merge: `docs/ledger/OPEN_QUESTIONS.md`の`Q-009`の部分解決（Claude発PRの無人マージ確認）と、squashコミット作者メールの公開に関する新しい問いは、自動対象外ファイルのため次の手動PRで反映する。
 - Next: `KIF-010`の持将棋／入玉宣言の仕様案、`KIF-020`の一時環境での実測。
+
+## 2026-11-15 — PR #8の結果記録とKIF-003リリース手順
+
+- Actor: Claude（Claude Codeクラウド）
+- Base commit: `6002ddda50be81ab97731069cb79dba783e4baa5`（PR #8のsquash後の`main`）
+- PR #8 result: [Source validation run 43703917476](https://github.com/setisunyuma/kifu-rival/actions/runs/43703917476)成功→[Guarded auto-merge run 43703966827](https://github.com/setisunyuma/kifu-rival/actions/runs/43703966827)で`github-actions[bot]`がsquash merge（`6002ddd`）。ユーザー側（ChatGPT）でも自動マージとCI成功を確認済みとの連絡あり。
+- User decisions: ADR-010として記録（Public/Private維持、メール公開のまま、ブランチ自動削除推奨、リポジトリ外でのGPLエンジン実測を許可、持将棋は推奨仕様を提示、優先順位KIF-003→KIF-010→KIF-020）。`Q-009`・`Q-010`を解決し、`Q-011`（持将棋・入玉）を追加。
+- KIF-003: `docs/RELEASE.md`、`scripts/release.mjs`、`tests/release.spec.ts`、`package.json`の`release:*`、`docs/OPERATIONS.md`のリリース節を追加・更新。`scripts/`・`package.json`・`OPERATIONS.md`・`DECISIONS.md`・`OPEN_QUESTIONS.md`を含むため**自動マージ対象外の手動レビューPR**とする。Siteへの反映は未実施（Sites権限なし）。
+- Branches: 手動レビューPRが開いたままでも自動マージ対象の作業を進めるため、`docs/AUTOMERGE_POLICY.md`の「タスクごとに`claude/<短い説明>`」に従い、作業ごとに`claude/`ブランチを分ける。
+- Data impact: なし。D1・localStorage・Siteの公開範囲は変更していない。

@@ -12,6 +12,8 @@
 | Q-006 | OPEN | 大規模教材の品質監修と外部棋譜・問題集の権利処理 | Claude調査 → User判断 | KIF-030, KIF-031 | 原著作物の無断転載をしない。自作・許諾済みデータの経路を比較 |
 | Q-007 | RESOLVED | GitHub Publicは認めるが、試作Site自体を外部公開するか | User | KIF-003 | **当面は本人限定Private**（ADR-007）。将来外部公開を検討するときは新たな承認を取る |
 | Q-008 | OPEN | 棋友が独自に書いたコードのルート`LICENSE`を何にするか | User / Claude提案 | KIF-002, KIF-024 | Publicでも著作権の利用許諾は自動で付与されない。外部エンジンの条件と将来像を照合して判断 |
-| Q-009 | OPEN | 自動マージのGitHub Actions実行、workflow_runの`base.sha`実測、`main`のruleset設定・検証 | ChatGPT / Claude | KIF-061, KIF-063 | 最初の同一repo安全PR・要手動PRを実地検証し、GitHub SettingsでPR必須・`verify`必須のrulesetを設定 |
+| Q-009 | RESOLVED | 自動マージのGitHub Actions実行、workflow_runの`base.sha`実測、`main`のruleset設定・検証 | ChatGPT / Claude | KIF-061, KIF-063 | 解決（2026-11-15）: Ruleset `Protect main`有効下でPR #5（ChatGPT発）とPR #7・#8（Claude Codeクラウド発）が無人マージ。`workflow_run`のbase SHAは毎回取得できた。PR #2・#6で要手動の保留、PR #7初回で失敗CIの保留も確認。欠落ケース・フォークPRの実地確認はKIF-063の残作業 |
+| Q-010 | RESOLVED | squashコミットの作者情報にGitHubアカウントの個人メールアドレスが残り、Public履歴で閲覧できる | User | KIF-062 | 2026-11-15ユーザー判断: 以前の判断どおり公開のままでよく、履歴の書換えは不要（ADR-010） |
+| Q-011 | OPEN | 持将棋・入玉の扱い（24点法・27点法・宣言法のどれを、対局のどの場面で使うか） | Claude提案 → User判断 | KIF-010 | 日本将棋連盟の現行規定を確認し、推奨仕様を`docs/ledger/WORK_ITEMS.md`のKIF-010と仕様書で提示する |
 
 `OPEN` のままでも実装できるタスクを切り分け、無用な停止を避ける。決着したら `RESOLVED` としてADRへの参照を追加し、行は削除しない。

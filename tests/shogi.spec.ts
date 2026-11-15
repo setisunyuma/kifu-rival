@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyMove, checkDeclaration, fromSfen, Game, initialGame, JISHOGI_MOVE_LIMIT, materialPoints, validatePosition, isInCheck, Kind, legalMoves, playMove, puzzleGame, Side, toSfen, usi } from "../lib/shogi";
+import { applyMove, checkDeclaration, declareEntering, explainDeclaration, fromSfen, shouldDeclare, Game, initialGame, JISHOGI_MOVE_LIMIT, materialPoints, validatePosition, isInCheck, Kind, legalMoves, playMove, puzzleGame, Side, toSfen, usi } from "../lib/shogi";
 import { LESSONS } from "../lib/lessons";
 
 test("starting position has the right number of pieces and legal pawn moves", () => {
@@ -380,4 +380,52 @@ test("validatePosition reports nifu, dead pieces, impossible counts, kings and a
   assert.match(issues("4k4/9/9/9/9/9/9/9/3KK4 b - 1").join(), /先手の玉が2枚/);
   assert.match(issues("4k4/9/9/9/9/9/9/9/4R3K b - 1").join(), /手番でない後手に王手/);
   assert.deepEqual(issues("4k4/9/9/9/9/9/9/9/4R3K w - 1"), [], "the side to move may be in check");
+});
+
+// ---------------------------------------------------------------------------
+// ADR-011: entering-king declaration in play (rule fixed at game start).
+// ---------------------------------------------------------------------------
+
+test("the declaration rule is fixed when the game starts and survives every move", () => {
+  let g = initialGame("amateur27");
+  for (const m of ["7g7f", "3c3d", "2g2f"]) g = play(g, m);
+  assert.equal(g.declarationRule, "amateur27");
+  assert.equal(initialGame().declarationRule, "jsa", "default is the JSA rule");
+  const legacy = initialGame(); delete legacy.declarationRule;
+  assert.equal(checkDeclaration(legacy).rule, "jsa", "games saved before the field existed use the JSA rule");
+});
+
+test("a match declaration ends the game by the fixed rule; a failed one loses", () => {
+  const p28 = (rule: "jsa" | "amateur27") => { const g = puzzleGame(enteredKing, { black: { KA: 1, FU: 3 } }); g.declarationRule = rule; return g; };
+  const jsa = declareEntering(p28("jsa"));
+  assert.equal(jsa.game.result, "draw");
+  assert.equal(jsa.game.declaration?.points, 28);
+  assert.equal(legalMoves(jsa.game).length, 0, "the game is over");
+  assert.equal(declareEntering(p28("amateur27")).game.result, "black");
+
+  const short = puzzleGame(enteredKing.map(p => p.r === 2 && p.c <= 2 ? { ...p, r: 3 } : p), { black: { HI: 2, KA: 2 } });
+  const lost = declareEntering(short);
+  assert.equal(lost.game.result, "white", "declaring without 10 pieces in camp loses");
+  assert.ok(lost.reasons.some(r => !r.ok && r.text.includes("9枚")));
+});
+
+test("practice declarations never end the game and explain every failed condition", () => {
+  const g = puzzleGame([...enteredKing, { r: 0, c: 4, kind: "KI", owner: "white" }]);
+  const r = declareEntering(g, "practice");
+  assert.equal(r.game, g, "game unchanged");
+  assert.equal(r.game.result, "playing");
+  const failed = r.reasons.filter(x => !x.ok).map(x => x.text);
+  assert.ok(failed.some(t => t.includes("王手")), "in check is explained");
+  assert.ok(failed.some(t => t.includes("20点")), "points are explained");
+  assert.deepEqual(explainDeclaration(checkDeclaration(puzzleGame(enteredKing, { black: { HI: 1, KA: 1, FU: 3 } }))).map(x => x.ok), [true, true, true, true, true]);
+});
+
+test("the rival declares only when the declaration wins", () => {
+  const win = puzzleGame(enteredKing, { black: { HI: 1, KA: 1, FU: 3 } });
+  assert.equal(shouldDeclare(win), true);
+  assert.equal(shouldDeclare(puzzleGame(enteredKing, { black: { KA: 1, FU: 3 } })), false, "28 points is only a JSA draw");
+  const amateur = puzzleGame(enteredKing, { black: { KA: 1, FU: 3 } }); amateur.declarationRule = "amateur27";
+  assert.equal(shouldDeclare(amateur), true);
+  assert.equal(shouldDeclare(mirrored(win)), true, "works for gote (the rival's side)");
+  assert.equal(shouldDeclare(initialGame()), false);
 });

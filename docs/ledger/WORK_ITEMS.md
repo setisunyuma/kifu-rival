@@ -18,7 +18,8 @@
 - Depends: KIF-001
 - Acceptance: ユーザー管理の**Public** GitHubリポジトリを作り、安全な最新ソース・全台帳・テストを移管し、Claude Codeでcloneできることを確認。実行Siteは本人限定のPrivateを保ち、差分・同期責任を明確化。
 - Evidence: ユーザーのPublic承認（ADR-007）。`setisunyuma/kifu-rival`（ID 1458595649、Public、本人admin可）は作成当初`size=0`。2026-11-15に検証済みスナップショット147ファイルを新Git履歴のコミット`992fdd0c50ad5316dd8621b94ddffd271844ef19`として移管し、GitHub tree APIで147ファイルを照合。初回CI [run 43696606531](https://github.com/setisunyuma/kifu-rival/actions/runs/43696606531)成功、PR #1も自動マージ成功。**Claude Codeクラウドからのclone/PR操作は未検証**。
-- Next: Claude Codeクラウドで当該Public repoを選んでcloneし、PR作成・最新mainの取得を確認。GitHubと非公開Siteの同期はKIF-003。
+- Evidence (Claude, 2026-11-15): Claude Codeクラウド環境で`setisunyuma/kifu-rival`のclone・`git fetch origin main`に成功（HEAD=origin/main=`0a6fd4e29b61df020573959547d3b3b08a5d5a3c`、作業ブランチ`claude/kiyu-shogi-app-handoff-0v2q7j`）。GitHub MCPの認証ユーザーは`setisunyuma`。Node 22.23.4 / npm 10.9.9で`npm ci`、`ledger:check`、`public:check`（147/145）、unit 17/17、lint、`tsc --noEmit`、build、`git diff --check`すべてPASS。ローカルコミット作者は`Claude <noreply@anthropic.com>`。PR作成と自動マージの結果は`SESSION_LOG`の後続記録で確認する。
+- Next: Claude作成PRの`verify`と`Guarded auto-merge`の実結果を記録してから`VERIFIED`を判断する。GitHubと非公開Siteの同期はKIF-003。
 
 ## KIF-003 — GitHubとSitesの安全なリリース経路
 - Status: BACKLOG
@@ -180,4 +181,5 @@
 - Depends: KIF-002, KIF-061
 - Acceptance: 本人の同一repo PRがCI全成功・現行head/base・変更範囲・サイズを満たす場合に無人`squash merge`される。一方、フォーク・失敗CI・古いコミット・インフラ/DB/公開設定変更等は自動マージされない。`main`のPR/CI保護、GitHubでの実地動作が確認でき、Private Siteを自動デプロイしない。
 - Evidence: `.github/workflows/guarded-auto-merge.yml`と`scripts/guarded-auto-merge.mjs`を実装、単体テスト4件追加（全体17件PASS）。GitHub Publicへ移管後、PR #1のCI [run 43696850845](https://github.com/setisunyuma/kifu-rival/actions/runs/43696850845)成功→[Guarded auto-merge run 43696911543](https://github.com/setisunyuma/kifu-rival/actions/runs/43696911543)成功→squash commit `a1fb7f516487fb4092f601169a482a7463dd79ff`、本人操作なしでマージ済み。要手動のPR #2は`[manual]`で自動マージ保留となり、ログに`Manual review`を確認（[run 43697230268](https://github.com/setisunyuma/kifu-rival/actions/runs/43697230268)）。PR #2はその後、CIと差分を確認して手動squash merge。main Ruleset `Protect main`を有効化し、PR #5で必須`verify`成功と保護下無人マージ成功を確認。
-- Next: main Rulesetの実地検証はPR #5で成功。要手動PRの保留挙動はPR #2で確認済み。Claude CodeクラウドからのPR発行確認を実施。CIイベントのbase SHA欠落ケースは安全停止のまま検証する。
+- Evidence (Claude, 2026-11-15): Claude CodeクラウドからGitHub MCP（認証`setisunyuma`）で台帳のみの同一repo PRを作成中。**draft PRは`assessMerge`で拒否され、かつ`verify.yml`の`pull_request`既定typesに`ready_for_review`が無いためdraft→Ready化後にCIが再実行されず自動マージされない**とコードから判明。そのため自動マージ検証PRは非draftで作成する。結果は後続記録。
+- Next: Claude作成PRのCI・自動マージ結果を記録。CIイベントのbase SHA欠落ケースは安全停止のまま検証する。draft運用を許すなら`verify.yml`に`ready_for_review`追加を手動PRで提案（`.github/`は自動対象外）。

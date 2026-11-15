@@ -105,3 +105,14 @@
 - Finding (privacy): 既存のsquashマージコミット（PR #1〜#6）の作者メールに、GitHubアカウントの個人メールアドレスが記録されている（Public履歴で閲覧可能）。本台帳にはアドレスを記載しない。GitHubの「Keep my email addresses private」設定の要否をユーザー判断に回す。
 - Pending: このPRの`verify`と`Guarded auto-merge`の結果は未確認。次の記録で追記する。
 - Correction: PR #7の初回CI [run 43703185199](https://github.com/setisunyuma/kifu-rival/actions/runs/43703185199)は`public:check`で**失敗**（WORK_ITEMSにnoreplyメールアドレスを記載したため。台帳編集後に`public:check`を再実行しなかったClaudeの手順ミス）。`Guarded auto-merge`は失敗CIに対して[run 43703224226](https://github.com/setisunyuma/kifu-rival/actions/runs/43703224226)で`skipped`となり、**失敗CIでは自動マージされないこと**を実地確認。アドレスを削除し再push。
+
+## 2026-11-15 — PR #7の無人マージ確認、KIF-010千日手と回帰テスト、KIF-020机上調査
+
+- Actor: Claude（Claude Codeクラウド）
+- Base commit: `8fba021fee1c849218eeb2cf550a4c560f1fcd52`（PR #7のsquash後の`main`）。作業ブランチ`claude/kiyu-shogi-app-handoff-0v2q7j`をこのmainから再作成。
+- PR #7 result: 修正後の`Source validation` [run 43703535608](https://github.com/setisunyuma/kifu-rival/actions/runs/43703535608)成功→`Guarded auto-merge` [run 43703597934](https://github.com/setisunyuma/kifu-rival/actions/runs/43703597934)成功、`merged_by=github-actions[bot]`。`KIF-002`を`VERIFIED`へ。`KIF-063`は拒否系の実地確認が一部残るため`IN_PROGRESS`。
+- KIF-010: 千日手・連続王手の千日手、`toSfen`/`fromSfen`、`Game.positionLog`（任意・後方互換）を追加。テスト17→33件。perft・593手局面は公表値と一致。ミューテーション5種を全検出。保存形式`kifu-rival.v1`は旧データをそのまま読める（新フィールドが無い場合は読込局面から数える）。UI・API・D1は未変更。千日手時のUI表示は既存の「引き分け」バナーを使用（実機確認は未実施）。
+- KIF-020: 一次資料による机上比較を`docs/ENGINE_INTEGRATION_PLAN.md`へ。第三者コード・バイナリ・評価関数は取込み・実行とも未実施。`fairy-stockfish.github.io`はこのクラウド環境のネットワーク許可外で未確認。
+- Validation: `npm run test:unit` 33/33 PASS、`lint` PASS、`npx tsc --noEmit` PASS、`npm run build` PASS、`public:check` PASS、`ledger:check` PASS、`git diff --check` PASS。
+- Not editable via auto-merge: `docs/ledger/OPEN_QUESTIONS.md`の`Q-009`の部分解決（Claude発PRの無人マージ確認）と、squashコミット作者メールの公開に関する新しい問いは、自動対象外ファイルのため次の手動PRで反映する。
+- Next: `KIF-010`の持将棋／入玉宣言の仕様案、`KIF-020`の一時環境での実測。

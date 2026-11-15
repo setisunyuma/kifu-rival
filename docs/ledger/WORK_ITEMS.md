@@ -12,14 +12,15 @@
 - Next: 最新ソースZIPを渡す。Public GitHub確立（KIF-002）と継続運用（KIF-003）へ進む。
 
 ## KIF-002 — Claude Codeが扱えるPublic GitHub正本の確立
-- Status: IN_PROGRESS
+- Status: VERIFIED
 - Priority: P0
 - Owner: ChatGPT → Claude
 - Depends: KIF-001
 - Acceptance: ユーザー管理の**Public** GitHubリポジトリを作り、安全な最新ソース・全台帳・テストを移管し、Claude Codeでcloneできることを確認。実行Siteは本人限定のPrivateを保ち、差分・同期責任を明確化。
 - Evidence: ユーザーのPublic承認（ADR-007）。`setisunyuma/kifu-rival`（ID 1458595649、Public、本人admin可）は作成当初`size=0`。2026-11-15に検証済みスナップショット147ファイルを新Git履歴のコミット`992fdd0c50ad5316dd8621b94ddffd271844ef19`として移管し、GitHub tree APIで147ファイルを照合。初回CI [run 43696606531](https://github.com/setisunyuma/kifu-rival/actions/runs/43696606531)成功、PR #1も自動マージ成功。**Claude Codeクラウドからのclone/PR操作は未検証**。
 - Evidence (Claude, 2026-11-15): Claude Codeクラウド環境で`setisunyuma/kifu-rival`のclone・`git fetch origin main`に成功（HEAD=origin/main=`0a6fd4e29b61df020573959547d3b3b08a5d5a3c`、作業ブランチ`claude/kiyu-shogi-app-handoff-0v2q7j`）。GitHub MCPの認証ユーザーは`setisunyuma`。Node 22.23.4 / npm 10.9.9で`npm ci`、`ledger:check`、`public:check`（147/145）、unit 17/17、lint、`tsc --noEmit`、build、`git diff --check`すべてPASS。ローカルコミット作者はClaude用のnoreplyアドレス（個人メールではない）。PR作成と自動マージの結果は`SESSION_LOG`の後続記録で確認する。
-- Next: Claude作成PRの`verify`と`Guarded auto-merge`の実結果を記録してから`VERIFIED`を判断する。GitHubと非公開Siteの同期はKIF-003。
+- Evidence (Claude, 2026-11-15, PR作成後): Claude CodeクラウドからGitHub MCPで[PR #7](https://github.com/setisunyuma/kifu-rival/pull/7)を作成（API上の作成者`setisunyuma`、同一repo）。修正push後の[CI run 43703535608](https://github.com/setisunyuma/kifu-rival/actions/runs/43703535608)成功→[Guarded auto-merge run 43703597934](https://github.com/setisunyuma/kifu-rival/actions/runs/43703597934)成功→`merged_by=github-actions[bot]`、squash commit `8fba021fee1c849218eeb2cf550a4c560f1fcd52`。マージ後に最新mainをfetchして作業ブランチを再作成。**clone・PR作成・最新main取得の受入条件を実地確認**。Private Siteの公開範囲はClaudeから操作・確認できない（Sites権限なし）ため、ChatGPTによるversion 5時点の確認（本人のみ・外部0）を根拠とし、GitHub側の操作では変化しない。
+- Next: なし（本IDは完了）。GitHubと非公開Siteの同期はKIF-003。
 
 ## KIF-003 — GitHubとSitesの安全なリリース経路
 - Status: BACKLOG
@@ -31,13 +32,15 @@
 - Next: 現行Sitesソース保存機能と新Public GitHubの差分同期方法を文書化し、Private Siteへの非破壊の更新で実験する。
 
 ## KIF-010 — 将棋ルール・合法手の完全性
-- Status: READY
+- Status: IN_PROGRESS
 - Priority: P0
-- Owner: Unassigned
+- Owner: Claude
 - Depends: none
 - Acceptance: 王手回避、成り、駒打ち、打ち歩詰め、千日手、連続王手の千日手、持将棋、終局判定等の仕様を確定し、相互に独立したテスト局面と回帰テストを用意する。
 - Evidence: `lib/shogi.ts` は基本の合法手を持つが完全な公式ルールの検証はない。`tests/shogi.spec.ts` あり。
-- Next: ルールの不足ケースと現テストの網羅性を列挙し、最小のテスト追加から開始する。
+- Evidence (Claude, 2026-11-15): 既存実装を調査し、王手回避・成り・駒打ち・打ち歩詰めは概ね正しいが**千日手が未実装**（`result: "draw"`が一度も設定されない）と確認。`lib/shogi.ts`に千日手（同一局面＝盤・持ち駒・手番の4回目で引分け、初回出現以降の自分の着手が全て王手なら王手側の負け）、SFEN出力`toSfen`／入力`fromSfen`、後方互換な任意フィールド`Game.positionLog`を追加。`tests/shogi.spec.ts`に16件追加（全33件PASS）: perft 1〜3手=30/900/25470（公表値と一致）、最大合法手数局面=593手（公表値と一致）、SFEN往復と不正入力、合駒・取り・玉移動の王手回避、両王手、ピン、成りの任意/強制/不可（先後）、打ち場所制限（先後）、と金のある筋の二歩不成立、成駒を取ると生駒で持ち駒、打ち歩詰め（禁止）と対照（逃げ道あり・突き歩詰め・香打ち詰めは合法）、千日手引分け、連続王手の千日手、旧保存形式の互換。ミューテーション5種（打ち歩詰め判定除去、桂の行き所、連続王手判定除去、4回→5回、二歩の成駒扱い）を全てテストが検出。
+- Remaining: 持将棋・入玉宣言（24点法/27点法の採否はユーザー判断が必要になり得る）、行き所のない駒・二歩等を含む不正局面の入力検証（KIF-011のSFEN取込時）、詰み以外の「合法手なし」（ステイルメイト）の扱いの明文化、より多様な既知perft局面、千日手検出の対局UI表示文言。
+- Next: 持将棋／入玉宣言の仕様案（競技規定の一次資料確認を含む）を作り、テスト先行で実装する。
 
 ## KIF-011 — 棋譜／盤面の相互運用とデータ移行
 - Status: BACKLOG
@@ -49,13 +52,14 @@
 - Next: 保存・解析・エンジン接続に必要な最小形式を提案する。
 
 ## KIF-020 — 強い将棋エンジンの比較・採用判断
-- Status: READY
+- Status: IN_PROGRESS
 - Priority: P0
 - Owner: Claude
 - Depends: none（KIF-010の検証と並行して調査可能。統合はKIF-010の結果を待つ）
 - Acceptance: 複数の候補について強さ、棋譜形式、iPhone/Cloudflare適合、推論遅延、ライセンス、保守、費用、オフライン可能性を実測／一次資料で比較し、採用候補と理由を提示する。
 - Evidence: 現 `chooseRivalMove` は浅い読みで、Lv.4も弱いとのユーザー評価。採用エンジンは未決。
-- Next: `docs/ENGINE_INTEGRATION_PLAN.md` に従い、USI/別プロセス案を出発点に複数エンジンを比較する。ライセンスや費用が不明な候補は本番統合しない。
+- Evidence (Claude, 2026-11-15): 机上調査第1回を`docs/ENGINE_INTEGRATION_PLAN.md`に記録。YaneuraOu本家、shielune/YaneuraOu（WASM配布フォーク、Cloudflare Workers用シングルスレッド版あり）、Fairy-Stockfish（公式WASM npm）、Apery Rust、dlshogi、`yaneuraou.wasm`を一次資料で比較。全てGPL-3.0系。評価関数の権利は候補ごとに未確認点が残る。**ビルド・実測・取込みは未実施**。
+- Next: リポジトリ外の一時環境でYaneuraOu系シングルスレッドWASMとFairy-Stockfish WASMを固定時間で実測し、現行Lv.4との対局を行う。評価関数の原典ライセンスを確認する。ライセンスや費用が不明な候補は本番統合しない。
 
 ## KIF-021 — 棋力を上げるエンジン接続試作
 - Status: BACKLOG
@@ -182,4 +186,6 @@
 - Acceptance: 本人の同一repo PRがCI全成功・現行head/base・変更範囲・サイズを満たす場合に無人`squash merge`される。一方、フォーク・失敗CI・古いコミット・インフラ/DB/公開設定変更等は自動マージされない。`main`のPR/CI保護、GitHubでの実地動作が確認でき、Private Siteを自動デプロイしない。
 - Evidence: `.github/workflows/guarded-auto-merge.yml`と`scripts/guarded-auto-merge.mjs`を実装、単体テスト4件追加（全体17件PASS）。GitHub Publicへ移管後、PR #1のCI [run 43696850845](https://github.com/setisunyuma/kifu-rival/actions/runs/43696850845)成功→[Guarded auto-merge run 43696911543](https://github.com/setisunyuma/kifu-rival/actions/runs/43696911543)成功→squash commit `a1fb7f516487fb4092f601169a482a7463dd79ff`、本人操作なしでマージ済み。要手動のPR #2は`[manual]`で自動マージ保留となり、ログに`Manual review`を確認（[run 43697230268](https://github.com/setisunyuma/kifu-rival/actions/runs/43697230268)）。PR #2はその後、CIと差分を確認して手動squash merge。main Ruleset `Protect main`を有効化し、PR #5で必須`verify`成功と保護下無人マージ成功を確認。
 - Evidence (Claude, 2026-11-15): Claude CodeクラウドからGitHub MCP（認証`setisunyuma`）で台帳のみの同一repo PRを作成中。**draft PRは`assessMerge`で拒否され、かつ`verify.yml`の`pull_request`既定typesに`ready_for_review`が無いためdraft→Ready化後にCIが再実行されず自動マージされない**とコードから判明。そのため自動マージ検証PRは非draftで作成する。結果は後続記録。
-- Next: Claude作成PRのCI・自動マージ結果を記録。CIイベントのbase SHA欠落ケースは安全停止のまま検証する。draft運用を許すなら`verify.yml`に`ready_for_review`追加を手動PRで提案（`.github/`は自動対象外）。
+- Evidence (Claude, 2026-11-15, 結果): Claude作成PR #7で、初回CI失敗時に`Guarded auto-merge`が`skipped`（[run 43703224226](https://github.com/setisunyuma/kifu-rival/actions/runs/43703224226)）、修正後のCI成功で無人squash merge（[run 43703597934](https://github.com/setisunyuma/kifu-rival/actions/runs/43703597934)、`8fba021`）を実地確認。**失敗CIでのマージ拒否**と**Claude Codeクラウド発PRの無人マージ**は確認済み。`Automatically delete head branches`は無効のようで、マージ後もheadブランチが残る（過去の`claude/*`ブランチ7本が残存）。
+- Remaining: フォークPR・古いhead・base SHA欠落の各拒否ケースは単体テストのみで実地未確認。
+- Next: CIイベントのbase SHA欠落ケースは安全停止のまま観察する。draft運用を許すなら`verify.yml`に`ready_for_review`追加を手動PRで提案（`.github/`は自動対象外）。draft運用を許すなら`verify.yml`に`ready_for_review`追加を手動PRで提案（`.github/`は自動対象外）。

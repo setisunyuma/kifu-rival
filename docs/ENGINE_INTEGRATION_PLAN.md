@@ -37,3 +37,30 @@
 - `KIF-021`: 採用判断後に**独立したUSI adapterの小さな実験**を行う。タイムアウト・フォールバックを必須にし、現行盤面・記録を破壊しない。
 - `KIF-022/023`: 実戦棋力・戦型の幅・人間らしさを別々の回帰テストで測定する。
 - API有料化、外部への棋譜送信、エンジン成果物の配布、サイト公開範囲の変更は、ユーザー判断と台帳の記録を経る。
+
+## KIF-020 机上調査 第1回（Claude, 2026-11-15）
+
+**位置付け**: 一次資料（各公式GitHub・npmレジストリのメタデータ）を読んだだけの比較であり、**ビルド・実測・採用判断はしていない**。第三者のコード・バイナリ・評価関数はリポジトリへ一切取り込んでいない。採用は`Q-003`でユーザーが判断する。
+
+| 候補 | 本体ライセンス | 実行形態の一次資料 | 評価関数・付属データ | 棋友との適合（仮説） |
+| --- | --- | --- | --- | --- |
+| [YaneuraOu](https://github.com/yaneurao/YaneuraOu)（本家） | GPL-3.0（README: 「ライセンス(GPLv3)に従う」） | USI準拠。READMEに`Make CI (for WebAssembly)`バッジ。正式Releasesは空 | 「リゼロ評価関数」は権利主張なしと明記。その他の評価関数・定跡はスポンサー向けニュースレター配布で、個別条件は未確認 | 探索の強さは最有力。評価関数の入手経路と再配布条件が最大の論点 |
+| [shielune/YaneuraOu](https://github.com/shielune/YaneuraOu/releases)（第三者フォーク、WASM配布） | GPLv3（リリースノート） | 9.61.8でブラウザpthread版・Node版・**Cloudflare Workers用シングルスレッド版**（`kp256-cfworkers`等）。pthread版は`SharedArrayBuffer`とCOOP/COEPが必要。WASMに評価関数は同梱しない | ノートに「公式記事で公開された`nn.bin`と`progress.bin`はMIT License」との記載。**原典（本家の配布記事）は未確認**。9.61.7のka系パッケージは評価を誤読する不具合があり9.61.8で差替えと明記 | 「ブラウザ／Worker内で動く強いエンジン」の最短経路。ただしフォーク保守者の継続性・ビルド再現性を要検証 |
+| [Fairy-Stockfish](https://github.com/fairy-stockfish/Fairy-Stockfish) | GPL-3.0 | USI対応、将棋を含む多数の変種。npm [`fairy-stockfish-nnue.wasm`](https://github.com/fairy-stockfish/fairy-stockfish.wasm) 1.1.12（GPL-3.0、2026-08-26公開、unpacked約1.7MB）と`ffish` 0.7.10（GPL-3.0） | NNUEは別ページで配布。将棋用ネットの有無・権利は**未確認**（配布ページがこの環境のネットワーク許可外） | 保守が活発でWASM公式。将棋専用エンジンより弱い可能性があり棋力の実測が必要 |
+| [Apery Rust](https://github.com/HiraokaTakuya/apery_rust) | GPL-3.0 | USI。評価関数バイナリはsubmodule必須（`material`機能なら無しでビルド可） | 評価関数の出所・権利は**未確認** | ネイティブ別プロセス案の比較対象 |
+| [dlshogi](https://github.com/TadaoYamaoka/DeepLearningShogi) | GPL-3.0 | USI。CUDA/cuDNN/TensorRT前提（ONNX Runtime版あり） | モデルはReleases配布・最新版は商用サービス。モデルの個別ライセンス**未確認** | GPU運用費が発生しスマホ・Workerに不適。現段階では除外候補 |
+| npm `yaneuraou.wasm` | GPL-3.0 | 0.1.2（2021-06-19）以降更新なし | 不明 | 保守停止とみなし除外候補 |
+
+### 実行場所ごとのGPL上の論点（一般論。法的結論ではない）
+
+1. **ブラウザ内WASM（Web Worker）**: ユーザー端末へエンジンのバイナリを**配布**する形になる。GPLv3の対応ソース提供・ライセンス表示が必要になる見込み。棋友本体とはUSI文字列を`postMessage`でやり取りする別プログラムとする設計を維持する。オフライン動作・サーバー費用ゼロが利点、端末性能とメモリ（ka系は初期256MB）が欠点。
+2. **Cloudflare Worker内WASM**: 端末へは配布しないが、Workerの実行時間・メモリ上限の最新公式値を確認する必要がある。シングルスレッド版のみ。
+3. **別サーバーのネイティブプロセス**: 最も強く柔軟だが、常時稼働費用が発生する（課金はユーザー承認事項）。
+
+### 次の実測（KIF-020の残り。採用前の実験であり統合ではない）
+
+- リポジトリ外の一時ディレクトリでビルド済みWASMを動かし、同一局面集に対する固定時間（例: 0.5s / 2s）の最善手・評価値・ノード数・メモリを記録する。対象はYaneuraOu系シングルスレッド版とFairy-Stockfish WASM。
+- 現行`chooseRivalMove` Lv.4との対局（先後入替え・複数局）で強さの差を記録する。
+- iPhone Safariでの初期化時間・メモリ・発熱をユーザーの実機で確認する（実機確認はユーザー協力が必要）。
+- 評価関数の原典ライセンス（本家配布記事）を直接確認できるまで、その評価関数を採用候補として確定しない。
+- `rival policy`は、エンジンのMultiPV候補（上位N手と評価値差）から棋力・棋風に応じて選ぶ設計を第一案とし、ランダム悪手による弱体化は採らない。

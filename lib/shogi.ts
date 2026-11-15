@@ -6,6 +6,9 @@ export type Piece = { owner: Side; kind: Kind; promoted: boolean };
 export type Move = { from?: Square; to: Square; drop?: HandKind; promote?: boolean };
 export type Hand = Record<HandKind, number>;
 
+/** One position reached during a game, used for sennichite (fourfold repetition). */
+export type PositionRecord = { key: string; check: boolean };
+
 export type Game = {
   board: (Piece | null)[][];
   hands: Record<Side, Hand>;
@@ -13,6 +16,12 @@ export type Game = {
   history: Move[];
   lastMove?: Move;
   result: "playing" | "black" | "white" | "draw";
+  /**
+   * Positions reached by playMove, oldest first, starting with the position the
+   * game was started (or loaded) from. Optional so games saved before this field
+   * existed still load; for those, counting starts from the loaded position.
+   */
+  positionLog?: PositionRecord[];
 };
 
 export const PIECE_NAMES: Record<Kind, string> = {
@@ -168,9 +177,101 @@ export function legalMoves(game: Game, side: Side = game.turn, skipDropMate = fa
   return moves;
 }
 
+const SFEN_LETTERS: Record<Kind, string> = { FU: "P", KY: "L", KE: "N", GI: "S", KI: "G", KA: "B", HI: "R", OU: "K" };
+
+/**
+ * SFEN position string (board, side to move, hands). Black/sente is uppercase.
+ * Pass moveNumber to append the move-count field; omit it to get a repetition key.
+ */
+export function toSfen(game: Game, moveNumber?: number): string {
+  const ranks = game.board.map(row => {
+    let out = "", empty = 0;
+    for (const p of row) {
+      if (!p) { empty++; continue; }
+      if (empty) { out += empty; empty = 0; }
+      const letter = SFEN_LETTERS[p.kind];
+      out += (p.promoted ? "+" : "") + (p.owner === "black" ? letter : letter.toLowerCase());
+    }
+    return empty ? out + empty : out;
+  });
+  let hands = "";
+  for (const side of ["black", "white"] as Side[]) for (const kind of HAND_ORDER) {
+    const n = game.hands[side][kind];
+    if (!n) continue;
+    const letter = side === "black" ? SFEN_LETTERS[kind] : SFEN_LETTERS[kind].toLowerCase();
+    hands += (n > 1 ? n : "") + letter;
+  }
+  const sfen = `${ranks.join("/")} ${game.turn === "black" ? "b" : "w"} ${hands || "-"}`;
+  return moveNumber === undefined ? sfen : `${sfen} ${moveNumber}`;
+}
+
+const SFEN_KINDS: Record<string, Kind> = { P: "FU", L: "KY", N: "KE", S: "GI", G: "KI", B: "KA", R: "HI", K: "OU" };
+
+/**
+ * Parse an SFEN position (the move-count field is optional and ignored). Throws on
+ * malformed input. This checks syntax only; it does not reject positions that are
+ * syntactically valid but impossible in a real game (e.g. a pawn on the last rank).
+ */
+export function fromSfen(sfen: string): Game {
+  const [boardPart, sidePart, handPart = "-"] = sfen.trim().split(/\s+/);
+  const ranks = boardPart?.split("/") ?? [];
+  if (ranks.length !== 9 || (sidePart !== "b" && sidePart !== "w")) throw new Error(`Invalid SFEN: ${sfen}`);
+  const board = blankBoard();
+  ranks.forEach((rank, r) => {
+    let c = 0;
+    for (let i = 0; i < rank.length; i++) {
+      const ch = rank[i];
+      if (/[1-9]/.test(ch)) { c += Number(ch); continue; }
+      const promoted = ch === "+";
+      const letter = promoted ? rank[++i] : ch;
+      const kind = letter && SFEN_KINDS[letter.toUpperCase()];
+      if (!kind || c > 8 || (promoted && !promotable(kind))) throw new Error(`Invalid SFEN rank ${r + 1}: ${rank}`);
+      board[r][c++] = { kind, owner: letter === letter.toUpperCase() ? "black" : "white", promoted };
+    }
+    if (c !== 9) throw new Error(`Invalid SFEN rank ${r + 1}: ${rank}`);
+  });
+  const hands = { black: blankHand(), white: blankHand() };
+  if (handPart !== "-") {
+    for (const [, count, letter] of handPart.matchAll(/(\d*)([A-Za-z])/g)) {
+      const kind = SFEN_KINDS[letter.toUpperCase()];
+      if (!kind || kind === "OU") throw new Error(`Invalid SFEN hand: ${handPart}`);
+      hands[letter === letter.toUpperCase() ? "black" : "white"][kind as HandKind] += count ? Number(count) : 1;
+    }
+    if (handPart.replace(/(\d*)([A-Za-z])/g, "") !== "") throw new Error(`Invalid SFEN hand: ${handPart}`);
+  }
+  return { board, hands, turn: sidePart === "b" ? "black" : "white", history: [], result: "playing" };
+}
+
+function positionRecord(game: Game): PositionRecord {
+  return { key: toSfen(game), check: isInCheck(game, game.turn) };
+}
+
+/**
+ * Sennichite: the same position (board, hands, side to move) occurring for the
+ * fourth time ends the game. It is a draw, unless one side gave check with every
+ * one of its moves since the first occurrence (連続王手の千日手); that side loses.
+ */
+function repetitionResult(log: PositionRecord[]): Game["result"] {
+  const current = log[log.length - 1];
+  const first = log.findIndex(entry => entry.key === current.key);
+  if (log.filter(entry => entry.key === current.key).length < 4) return "playing";
+  const cycle = log.slice(first + 1);
+  // A position with white to move was reached by a black move, and vice versa.
+  const checkedEveryTime = (mover: Side) => {
+    const reached = cycle.filter(entry => entry.key.split(" ")[1] === (mover === "black" ? "w" : "b"));
+    return reached.length > 0 && reached.every(entry => entry.check);
+  };
+  const blackPerpetual = checkedEveryTime("black"), whitePerpetual = checkedEveryTime("white");
+  if (blackPerpetual && !whitePerpetual) return "white";
+  if (whitePerpetual && !blackPerpetual) return "black";
+  return "draw";
+}
+
 export function playMove(game: Game, move: Move): Game {
   const next = applyMove(game, move);
+  next.positionLog = [...(game.positionLog ?? [positionRecord(game)]), positionRecord(next)];
   if (legalMoves(next, next.turn).length === 0) next.result = game.turn;
+  else next.result = repetitionResult(next.positionLog);
   return next;
 }
 

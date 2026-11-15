@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyMove, findMissedMates, forcesMate, mateMoves, opponent, withRemainingPiecesToDefender, checkDeclaration, declareEntering, explainDeclaration, fromSfen, shouldDeclare, Game, initialGame, JISHOGI_MOVE_LIMIT, materialPoints, validatePosition, isInCheck, Kind, legalMoves, playMove, puzzleGame, Side, toSfen, usi } from "../lib/shogi";
+import { applyMove, findMissedMates, forcesMate, reviewGame, mateMoves, opponent, withRemainingPiecesToDefender, checkDeclaration, declareEntering, explainDeclaration, fromSfen, shouldDeclare, Game, initialGame, JISHOGI_MOVE_LIMIT, materialPoints, validatePosition, isInCheck, Kind, legalMoves, playMove, puzzleGame, Side, toSfen, usi } from "../lib/shogi";
 import { dailyPlan, lessonsForSkills, skillsForMissedMates, LessonAttempt, lessonStates, LESSONS, practisedSkills, SKILLS, SkillId } from "../lib/lessons";
 
 test("starting position has the right number of pieces and legal pawn moves", () => {
@@ -587,9 +587,9 @@ test("L3 review records are well-formed and never claim a review nobody did", ()
 
 test("game review: a missed mate-in-1 and a missed mate-in-3 are reported with their solutions", () => {
   const one = puzzleGame(boxedKing, { black: { KY: 1 } });
-  assert.deepEqual(findMissedMates(["L*5e", "2b2c"], "black", 3, one), [{ ply: 0, plies: 1, played: "L*5e", solutions: ["L*1b"], solutionNames: ["▲１二香打"] }]);
+  assert.deepEqual(findMissedMates(["L*5e", "2b2c"], "black", 3, one), [{ ply: 0, plies: 1, played: "L*5e", solutions: ["L*1b"], solutionNames: ["▲１二香打"], kind: "mate-not-continued", horizon: 3 }]);
   const three = fromSfen("5kS2/8l/5b3/9/9/9/9/9/K8 b 2RN 1");
-  assert.deepEqual(findMissedMates(["9i8i"], "black", 3, three), [{ ply: 0, plies: 3, played: "9i8i", solutions: ["R*4b"], solutionNames: ["▲４二飛打"] }]);
+  assert.deepEqual(findMissedMates(["9i8i"], "black", 3, three), [{ ply: 0, plies: 3, played: "9i8i", solutions: ["R*4b"], solutionNames: ["▲４二飛打"], kind: "mate-not-continued", horizon: 5 }]);
   assert.deepEqual(findMissedMates(["9i8i"], "black", 1, three), [], "mate-in-3 search can be turned off");
 });
 
@@ -598,6 +598,14 @@ test("game review: playing the mate, the opponent's turns and corrupt records ar
   const whiteToMove = puzzleGame(boxedKing, { black: { KY: 1 } }); whiteToMove.turn = "white";
   assert.deepEqual(findMissedMates(["2b2c"], "black", 3, whiteToMove), [], "only the player's own turns are reviewed");
   assert.deepEqual(findMissedMates(["7g7f", "zz99", "3c3d"]), [], "stops at an unknown move");
+  const corrupt = reviewGame(["7g7f", "zz99", "3c3d"]);
+  assert.deepEqual({ ...corrupt, missed: corrupt.missed.length }, { missed: 0, totalPlies: 3, analyzedPlies: 1, complete: false, stopReason: "illegal-move" }, "corrupt is not 'no missed mates'");
+  const full = reviewGame(["7g7f", "3c3d"]);
+  assert.deepEqual({ complete: full.complete, analyzedPlies: full.analyzedPlies, stopReason: full.stopReason }, { complete: true, analyzedPlies: 2, stopReason: undefined });
+  const timed = reviewGame(["7g7f", "3c3d"], "black", 3, initialGame(), { deadline: Date.now() - 1 });
+  assert.deepEqual({ complete: timed.complete, analyzedPlies: timed.analyzedPlies, stopReason: timed.stopReason }, { complete: false, analyzedPlies: 0, stopReason: "time-limit" });
+  const cancelled = reviewGame(["7g7f", "3c3d"], "black", 3, initialGame(), { shouldStop: () => true });
+  assert.equal(cancelled.stopReason, "cancelled");
   assert.deepEqual(findMissedMates(["7g7f", "3c3d", "8h2b+"]), [], "an ordinary opening has no missed mate");
 });
 
@@ -608,4 +616,19 @@ test("recommendation: missed mates map to C1/C2 and fall back to the nearest tau
   const plan = dailyPlan([], new Date(day(0)), LESSONS, ["C1"]);
   assert.ok(plan.some(p => p.lessonId === "rook-mate" && p.reason === "game"), JSON.stringify(plan));
   assert.equal(plan.length, 3);
+});
+
+test("game review: a different correct mate is a learning opportunity, not a weakness", () => {
+  // 1-move mate exists (e.g. G*1b); R*1c 1a2a G*2b is a correct 3-move mate.
+  const start = fromSfen("8k/9/7G1/9/9/9/9/9/K8 b RG 1");
+  assert.ok(mateMoves(start, 1).includes("G*1b"));
+  assert.ok(mateMoves(start, 3).includes("R*1c"), "solver confirms R*1c forces mate in 3");
+  const review = reviewGame(["R*1c", "1a2a", "G*2b"], "black", 3, start);
+  assert.equal(review.complete, true);
+  assert.equal(review.missed.length, 1);
+  assert.equal(review.missed[0].kind, "shorter-mate-available");
+  assert.deepEqual(skillsForMissedMates(review.missed), [], "not counted as a weakness");
+  const lost = reviewGame(["9i9h"], "black", 3, start);
+  assert.equal(lost.missed[0].kind, "mate-not-continued");
+  assert.deepEqual(skillsForMissedMates(lost.missed), ["C1"]);
 });

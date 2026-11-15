@@ -234,3 +234,20 @@
 - Actor: Claude（Claude Codeクラウド）
 - Review: コメント・空白の除去が引用符の内外を区別せず、文字列内の空白や`//`で検出漏れが起きる、との指摘。原因（文字列を壊す前処理）を除き、TypeScriptパーサーの字句で比較する方式に変更。手順書の検出範囲を実際の保証に合わせて更新。端末内データの保全手段がないため、`data`判定のリリースは書き出し・読み込み機能（KIF-050）の後とした。
 - Validation: `test:unit` 95/95 PASS（実際のGit差分の`plan`、実ファイルの`preflight`を含む）、ミューテーション2種を検出。PR #9は手動レビュー対象のまま。
+
+## 2026-11-15 — KIF-032 解析のWeb Worker化と「より短い詰み」の区別
+
+- Actor: Claude（Claude Codeクラウド）
+- Base commit: `07e972a`（PR #19のsquash後）
+- Review: 解析が画面処理を占有しうる、未解析を0件と混同しうる、別の正しい詰みを失敗として推薦する、との指摘を反映。
+- Changes: `hooks/game-review.worker.ts`・`hooks/use-game-review.ts`・`hooks/worker-modules.d.ts`を追加、`lib/shogi.ts`に`reviewGame`（完了状態・打ち切り理由・見逃しの種類）、`lib/lessons.ts`の推薦を「詰みが続かなかった」ものに限定、成長の記録画面の表示を更新。保存形式・API・D1は未変更。
+- Validation: `test:unit` 62/62 PASS。Chromium（開発サーバーと本番ビルド）で応答性・打ち切り表示・入力変更時の結果の入れ替わりを確認。iPhone実機は未確認。
+
+## 2026-11-16 — PR #9へ最新mainを取り込み
+
+- Actor: ChatGPT
+- Base commit: PR #9の`93736b6`と、PR #20マージ後のmain `1ef202d3d9626175cc3e5c8e120d30ed7a54459e`。
+- Changes: `SESSION_LOG.md`だけの競合を解消し、両ブランチの記録を残した。既存の指摘対応とmainのWorker解析を両立。
+- Validation: `test:unit` 96/96 PASS、lint・型チェック・build・ledger:check・public:check・diff --checkがすべてPASS。UI固有の追加変更はなく、iPhone実機の確認は未実施。新しい取り込みコミットのCIはpush後に確認する。
+- Release plan: 最新main `1ef202d`を移管基準`992fdd0`から分類し、保存処理の変更による`data`判定・終了コード2を確認。端末データの退避・復元（KIF-050）と承認記録は、実リリース前に満たす条件。
+- Boundary: 手動レビュー対象を維持。PRのマージ、Site同期・配備は実施していない。

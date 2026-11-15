@@ -242,6 +242,46 @@ export function fromSfen(sfen: string): Game {
   return { board, hands, turn: sidePart === "b" ? "black" : "white", history: [], result: "playing" };
 }
 
+const PIECE_LIMITS: Record<Kind, number> = { FU: 18, KY: 4, KE: 4, GI: 4, KI: 4, KA: 2, HI: 2, OU: 2 };
+
+/**
+ * Problems that make a position impossible in a real game (JSA 対局規則 第10条:
+ * 二歩, 行き所のない駒, leaving one's king in check), plus piece-count and king
+ * sanity. An empty list means the position may be handed to search or an engine.
+ * Missing pieces are allowed (handicap games, composed problems), but each side needs
+ * exactly one king: USI engines require both, so a tsume problem without the
+ * attacker's king must be adapted before it is analysed.
+ */
+export function validatePosition(game: Game): string[] {
+  const problems: string[] = [];
+  const counts: Record<Kind, number> = { FU: 0, KY: 0, KE: 0, GI: 0, KI: 0, KA: 0, HI: 0, OU: 0 };
+  const kings: Record<Side, number> = { black: 0, white: 0 };
+  const name = (side: Side) => (side === "black" ? "先手" : "後手");
+  for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) {
+    const p = game.board[r][c];
+    if (!p) continue;
+    counts[p.kind]++;
+    if (p.kind === "OU") kings[p.owner]++;
+    if (p.promoted && !promotable(p.kind)) problems.push(`${9 - c}${"abcdefghi"[r]}: ${p.kind} cannot be promoted`);
+    if (!p.promoted && mustPromote(p.kind, p.owner, r)) problems.push(`${9 - c}${"abcdefghi"[r]}: ${name(p.owner)}の${PIECE_NAMES[p.kind]}に行き所がない`);
+  }
+  for (const side of ["black", "white"] as Side[]) {
+    for (const kind of HAND_ORDER) counts[kind] += game.hands[side][kind];
+    if (kings[side] !== 1) problems.push(`${name(side)}の玉が${kings[side]}枚`);
+    for (let c = 0; c < 9; c++) {
+      const pawns = game.board.filter(row => row[c]?.owner === side && row[c]?.kind === "FU" && !row[c]?.promoted).length;
+      if (pawns > 1) problems.push(`${9 - c}筋: ${name(side)}の二歩`);
+    }
+  }
+  for (const kind of Object.keys(PIECE_LIMITS) as Kind[]) {
+    if (counts[kind] > PIECE_LIMITS[kind]) problems.push(`${PIECE_NAMES[kind]}が${counts[kind]}枚（上限${PIECE_LIMITS[kind]}）`);
+  }
+  if (kings.black === 1 && kings.white === 1 && isInCheck(game, opponent(game.turn))) {
+    problems.push(`手番でない${name(opponent(game.turn))}に王手がかかっている`);
+  }
+  return problems;
+}
+
 function positionRecord(game: Game): PositionRecord {
   return { key: toSfen(game), check: isInCheck(game, game.turn) };
 }

@@ -126,3 +126,10 @@
 - Changes: 500手持将棋を`playMove`へ。入玉宣言の判定関数（連盟規則・27点法）と点数計算を追加。画面・AIへの接続はQ-011の判断待ち。保存形式・API・D1は未変更。
 - Validation: `test:unit` 39/39 PASS、ミューテーション8種を全検出。lint・型・build・public・ledgerは本PRのCIで確認。
 - Next: Q-011の判断待ち。並行してKIF-020の実測。
+
+## 2026-11-15 — KIF-010 不正局面の検出と教材の二歩修正
+
+- Actor: Claude（Claude Codeクラウド）
+- Base commit: `c2e9aac`（PR #10のsquash後の`main`）。PR #10は`Guarded auto-merge`で無人マージ済み。PR #9（KIF-003、`[manual]`）は[run 43708349780](https://github.com/setisunyuma/kifu-rival/actions/runs/43708349780)で`Manual review: PR #9: Manual review explicitly requested`として保留され、mainを取り込んで競合を解消済み（ユーザーの確認待ち）。
+- Changes: `validatePosition`を追加。教材`rook-mate`の後手の二歩を修正（盤面表示から後手の歩2枚が減る）。保存形式・API・D1は未変更。
+- Validation: `test:unit` 41/41 PASS、ミューテーション3種を全検出。教材の盤面はPlaywright（Chromium、375×812、モバイル下部ナビ経由）で表示を確認（iPhone実機は未確認）。

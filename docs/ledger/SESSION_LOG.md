@@ -93,3 +93,15 @@
 - Ruleset evidence: `Protect main`（ID `27308076`）は`active`、default branch対象、PR必須・承認数0・必須チェック`verify`（GitHub Actions）・ブランチ削除/force push禁止・Squashのみ・最新ブランチ強制OFF・bypassなし。API再読込で確認。
 - Smoke test: [PR #5](https://github.com/setisunyuma/kifu-rival/pull/5)はこの台帳だけを追記した本人の同一repo PR。[Source validation run 43700912594](https://github.com/setisunyuma/kifu-rival/actions/runs/43700912594)で`verify`成功後、[Guarded auto-merge run 43700962737](https://github.com/setisunyuma/kifu-rival/actions/runs/43700962737)成功、`merged=true`。無人Squashコミットは`c18b26f5a43ad604c4ec7de7fac01bc073dab124`。
 - Interpretation: **ルール保護と自動マージの両立を実地検証**。ただしClaude Codeクラウドでのclone/PR発行は未検証、ChatGPT Private Siteには自動デプロイしていない。`KIF-063`はIN_PROGRESSを維持。
+
+## 2026-11-15 — Claude Codeクラウド環境の初回検証とPR作成
+
+- Actor: Claude（Claude Codeクラウド）
+- Base commit: `0a6fd4e29b61df020573959547d3b3b08a5d5a3c`（`origin/main`と一致、作業ツリーclean）。作業ブランチ`claude/kiyu-shogi-app-handoff-0v2q7j`。
+- Scope: `KIF-002`, `KIF-063`の実地検証。台帳のみ変更。アプリ・D1・Site・公開設定は変更なし。
+- GitHub access: clone/fetch成功。GitHub MCP `get_me`=`setisunyuma`。PRはこのMCP経由で作成するため、PR作成者は`setisunyuma`になる見込み（PR作成後のAPIで確認）。
+- Local validation: `npm ci` PASS（687 packages）、`ledger:check` PASS（16文書/20ID）、`public:check` PASS（147追跡/145テキスト）、`test:unit` 17/17 PASS、`lint` PASS、`npx tsc --noEmit` PASS、`npm run build` PASS、`git diff --check` PASS。
+- Finding: draft PRは自動マージ対象外で、`ready_for_review`でCIが再実行されないため、自動マージ検証PRは非draftで作る。
+- Finding (privacy): 既存のsquashマージコミット（PR #1〜#6）の作者メールに、GitHubアカウントの個人メールアドレスが記録されている（Public履歴で閲覧可能）。本台帳にはアドレスを記載しない。GitHubの「Keep my email addresses private」設定の要否をユーザー判断に回す。
+- Pending: このPRの`verify`と`Guarded auto-merge`の結果は未確認。次の記録で追記する。
+- Correction: PR #7の初回CI [run 43703185199](https://github.com/setisunyuma/kifu-rival/actions/runs/43703185199)は`public:check`で**失敗**（WORK_ITEMSにnoreplyメールアドレスを記載したため。台帳編集後に`public:check`を再実行しなかったClaudeの手順ミス）。`Guarded auto-merge`は失敗CIに対して[run 43703224226](https://github.com/setisunyuma/kifu-rival/actions/runs/43703224226)で`skipped`となり、**失敗CIでは自動マージされないこと**を実地確認。アドレスを削除し再push。

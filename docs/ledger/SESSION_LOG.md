@@ -164,3 +164,10 @@
 - Base commit: `5d50bcc`（PR #14のsquash後の`main`。PR #14は無人マージ済み）
 - Changes: `lib/lessons.ts`に学習ループの純関数、教材画面に「今日の課題」。回答記録はlocalStorageの任意キー`lessonAttempts`（旧データはそのまま読める）。D1・APIへの送信なし。
 - Validation: `test:unit` 52/52 PASS。Chromium 375×812で、課題カードの表示、誤答の記録（1訪問1回）、苦手の再提示を確認。iPhone実機は未確認。
+
+## 2026-11-15 — KIF-020 試作 第2回（ブラウザWASMの比較）
+
+- Actor: Claude（Claude Codeクラウド）
+- Base commit: `3b462d5`（PR #16のsquash後の`main`。PR #16は無人マージ済み）
+- Work: リポジトリ外でEmscripten（emsdk）を導入し、YaneuraOu駒得版をWASM化。Chromiumで、Fairy-Stockfish WASMと同条件で比較した。YaneuraOu WASMは動作せず（クラッシュ／応答なし）、原因は未解決。第三者のコード・バイナリはコミットしていない。
+- Next: YaneuraOu WASMの切り分け、iPhone計測の手順書（ローカル計測サーバー方式）。

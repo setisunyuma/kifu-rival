@@ -104,3 +104,4 @@
 - Finding: draft PRは自動マージ対象外で、`ready_for_review`でCIが再実行されないため、自動マージ検証PRは非draftで作る。
 - Finding (privacy): 既存のsquashマージコミット（PR #1〜#6）の作者メールに、GitHubアカウントの個人メールアドレスが記録されている（Public履歴で閲覧可能）。本台帳にはアドレスを記載しない。GitHubの「Keep my email addresses private」設定の要否をユーザー判断に回す。
 - Pending: このPRの`verify`と`Guarded auto-merge`の結果は未確認。次の記録で追記する。
+- Correction: PR #7の初回CI [run 43703185199](https://github.com/setisunyuma/kifu-rival/actions/runs/43703185199)は`public:check`で**失敗**（WORK_ITEMSにnoreplyメールアドレスを記載したため。台帳編集後に`public:check`を再実行しなかったClaudeの手順ミス）。`Guarded auto-merge`は失敗CIに対して[run 43703224226](https://github.com/setisunyuma/kifu-rival/actions/runs/43703224226)で`skipped`となり、**失敗CIでは自動マージされないこと**を実地確認。アドレスを削除し再push。

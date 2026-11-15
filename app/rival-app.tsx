@@ -13,7 +13,7 @@ import {
   Square, checkDeclaration, chooseRivalMove, declarationRuleOf, declareEntering, explainDeclaration,
   initialGame, legalMoves, playMove, shouldDeclare, usi,
 } from "../lib/shogi";
-import { LESSONS, ROADMAP } from "../lib/lessons";
+import { LessonAttempt, LESSONS, PlanItem, ROADMAP, dailyPlan } from "../lib/lessons";
 import { RivalGameRecord, RivalMessage, rivalReply } from "../lib/rival-chat";
 
 type View = "play" | "learn" | "rival" | "history";
@@ -127,6 +127,9 @@ export default function RivalApp() {
   const [practiceSelected, setPracticeSelected] = useState<Square | null>(null);
   const [practiceDrop, setPracticeDrop] = useState<HandKind | null>(null);
   const [completed, setCompleted] = useState<string[]>([]);
+  // Answers to lessons, kept on this device only (KIF-032 minimal loop).
+  const [attempts, setAttempts] = useState<LessonAttempt[]>([]);
+  const [attemptRecorded, setAttemptRecorded] = useState(false);
   const [lessonFeedback, setLessonFeedback] = useState("");
   const [showHint, setShowHint] = useState(false);
   const [records, setRecords] = useState<GameRecord[]>([]);
@@ -151,6 +154,7 @@ export default function RivalApp() {
           if (typeof saved.level === "number" && saved.level >= 1 && saved.level <= 4) setLevel(saved.level);
           if (saved.declarationRule === "jsa" || saved.declarationRule === "amateur27") setRuleSetting(saved.declarationRule);
           if (Array.isArray(saved.completed)) setCompleted(saved.completed.filter(x => typeof x === "string"));
+          if (Array.isArray(saved.lessonAttempts)) setAttempts((saved.lessonAttempts as LessonAttempt[]).filter(a => a && typeof a.lessonId === "string" && typeof a.correct === "boolean" && typeof a.at === "string").slice(-500));
           if (Array.isArray(saved.records)) setRecords(saved.records as GameRecord[]);
           if (Array.isArray(saved.messages) && saved.messages.length) {
             const savedMessages = saved.messages as ChatMessage[];
@@ -180,9 +184,9 @@ export default function RivalApp() {
 
   useEffect(() => {
     if (!hydrated) return;
-    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ game, level, declarationRule: ruleSetting, completed, records, messages: messages.slice(-80) })); }
+    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ game, level, declarationRule: ruleSetting, completed, lessonAttempts: attempts.slice(-500), records, messages: messages.slice(-80) })); }
     catch { /* Storage can be blocked by private browsing. */ }
-  }, [hydrated, game, level, ruleSetting, completed, records, messages]);
+  }, [hydrated, game, level, ruleSetting, completed, attempts, records, messages]);
 
   // Scroll only within the chat panel. scrollIntoView used to drag the whole
   // iPhone page down to the chat, hiding the board immediately after opening.
@@ -200,6 +204,8 @@ export default function RivalApp() {
   const myDeclaration = useMemo(() => checkDeclaration(game, "black"), [game]);
   const practiceMoves = useMemo(() => legalMoves(practice), [practice]);
   const lesson = LESSONS[lessonIndex];
+  // Computed only after hydration so the server render and the first client render agree.
+  const todayPlan: PlanItem[] = useMemo(() => (hydrated ? dailyPlan(attempts, new Date()) : []), [hydrated, attempts]);
   const stats = { won: records.filter(x => x.result === "black").length, lost: records.filter(x => x.result === "white").length };
 
   function saveMatch(result: GameRecord["result"], moveList: Move[]) {
@@ -252,7 +258,10 @@ export default function RivalApp() {
     setPromotion(null);
     if (!learning) { commitMove(game, move); return; }
     setPracticeSelected(null); setPracticeDrop(null);
-    if (usi(move) !== lesson.answer) {
+    const correct = usi(move) === lesson.answer;
+    // Record only the first answer per visit, so trying several moves is not counted as several mistakes.
+    if (!attemptRecorded) { setAttempts(prev => [...prev, { lessonId: lesson.id, correct, at: new Date().toISOString() }].slice(-500)); setAttemptRecorded(true); }
+    if (!correct) {
       setLessonFeedback("その手も考えられるね。今回は、お題の手を探してみよう。");
       return;
     }
@@ -298,7 +307,7 @@ export default function RivalApp() {
   }
 
   function chooseLesson(index: number) {
-    setLessonIndex(index); setPractice(LESSONS[index].setup()); setPracticeSelected(null); setPracticeDrop(null);
+    setLessonIndex(index); setPractice(LESSONS[index].setup()); setPracticeSelected(null); setPracticeDrop(null); setAttemptRecorded(false);
     setLessonFeedback(""); setShowHint(false); setPromotion(null);
   }
 
@@ -389,6 +398,7 @@ export default function RivalApp() {
           {view === "learn" && <>
             <div className="page-header"><div><p className="eyebrow"><span>―</span> STUDY / 学び</p><h1>将棋を、深く知る。</h1><p>駒の動きから戦型の構想へ。初めの一手を丁寧に。</p></div><div className="header-stats"><span><Check size={15} /> {completed.length} / {LESSONS.length} 修了</span></div></div>
             <div className="learning-progress"><div><span>YOUR PROGRESS</span><strong>基礎コース</strong></div><div className="progress-track"><span style={{ width: `${(completed.length / LESSONS.length) * 100}%` }} /></div><strong>{Math.round(completed.length / LESSONS.length * 100)}%</strong></div>
+            {todayPlan.length > 0 && <section className="panel daily-plan"><div className="daily-plan-head"><strong>今日の課題</strong><small>復習・苦手・新しいレッスンから最大3問。記録はこの端末にだけ保存されます。</small></div><div className="daily-plan-list">{todayPlan.map(item => { const index = LESSONS.findIndex(l => l.id === item.lessonId); const l = LESSONS[index]; return <button key={item.lessonId} type="button" onClick={() => chooseLesson(index)} className={`daily-plan-item plan-${item.reason}`}><span>{item.reason === "review" ? "復習" : item.reason === "weak" ? "苦手" : "新しい"}</span><strong>{l.title}</strong><ChevronRight size={15} /></button>; })}</div><p className="daily-plan-note">復習は同じ問題の解き直しです（仮の仕組み）。初見の練習問題は準備中です。</p></section>}
             <div className="learn-layout"><section className="panel lesson-list-panel"><div className="list-heading"><h2>学びの道のり</h2><p>レッスンを選んで始めよう</p></div><div className="lesson-list">
               {LESSONS.map((item, index) => <button key={item.id} onClick={() => chooseLesson(index)} className={`lesson-item ${lessonIndex === index ? "lesson-selected" : ""}`}><span className={`lesson-index ${completed.includes(item.id) ? "lesson-done" : ""}`}>{completed.includes(item.id) ? <Check size={15} /> : `${index + 1}`}</span><span className="lesson-info"><small>STAGE {item.stage} · {item.category}</small><strong>{item.title}</strong><span>{item.summary}</span></span><ChevronRight size={16} /></button>)}
             </div><div className="roadmap-heading"><Layers3 size={17} /> この先の学び <span>COMING SOON</span></div><div className="roadmap-list">{ROADMAP.map(item => <div className="roadmap-item" key={item.stage}><span>{item.stage}</span><div><strong>{item.title}</strong><small>{item.summary}</small></div><span className="roadmap-lock">準備中</span></div>)}</div></section>

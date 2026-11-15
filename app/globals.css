@@ -602,3 +602,16 @@ body {
 .declare-note { font-size: 10px; font-weight: 600; color: #5d7468; }
 .rule-note { flex-basis: 100%; font-size: 9px; color: #9a927e; }
 .level-select + .level-select { border-top: 0; padding-top: 0; }
+
+/* Daily plan (KIF-032 minimal loop) */
+.daily-plan { margin-bottom: 16px; padding: 16px 18px; }
+.daily-plan-head strong { display: block; font-size: 14px; color: #34493f; }
+.daily-plan-head small { display: block; margin-top: 3px; font-size: 10px; color: #8d8a7c; line-height: 1.6; }
+.daily-plan-list { display: grid; gap: 8px; margin-top: 12px; }
+.daily-plan-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 11px 12px; border: 1px solid #e3e1d5; border-radius: 3px; background: #fffefa; text-align: left; color: #3e5249; }
+.daily-plan-item span { flex: 0 0 auto; padding: 2px 7px; border-radius: 2px; font-size: 10px; font-weight: 700; letter-spacing: .04em; }
+.daily-plan-item strong { flex: 1; font-size: 12px; }
+.plan-review span { background: #e8efe6; color: #3f6650; }
+.plan-weak span { background: #f6e7e2; color: #9a4a3c; }
+.plan-new span { background: #efeadc; color: #7a6a43; }
+.daily-plan-note { margin: 10px 0 0; font-size: 9px; color: #a29d8c; }

@@ -12,17 +12,21 @@
  *   node scripts/release.mjs snapshot --root <dir> --out <file>
  *       Hash every file of any directory (e.g. the Sites checkout BEFORE syncing), for
  *       backup integrity and for verifying a restore. Needs no Git.
- *   node scripts/release.mjs preflight <manifest.json> --root <dir> [--decisions <file>] [--rsync-dry-run <file>] [--out <file>]
- *       READ-ONLY check before syncing. Lists files the sync would add, overwrite or
- *       delete. Overwrites and deletions of Site files stop the release unless each one
- *       has a recorded decision bound to the file's current hash. Optionally cross-checks
- *       an `rsync --dry-run --itemize-changes` listing. Exit 0 = safe to sync, 3 = STOP.
+ *   node scripts/release.mjs preflight <manifest.json> --root <dir> --backup-snapshot <file>
+ *       --backup-archive <tgz> --rsync-dry-run <file> [--decisions <file>] [--data-approval <file>] [--out <file>]
+ *       READ-ONLY gate check before syncing. Automated gates (all required): every overwrite/
+ *       delete has a decision bound to the file's current hash; the rsync dry-run matches the
+ *       plan; the backup snapshot matches the Site as it is now; the backup archive restores
+ *       to exactly that snapshot. Manual gate: if the sync touches data-level paths (D1,
+ *       bindings, auth), an approval record must be supplied — the tool checks it is present
+ *       and complete, NOT that it is true. Exit 0 = gates passed, 3 = STOP.
  *   node scripts/release.mjs verify <manifest.json> [--root <dir>]
  *       AFTER syncing: compare a directory against the manifest (detects any difference).
  */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstatSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -174,29 +178,80 @@ function snapshot(args) {
   console.log(`snapshot: ${Object.keys(files).length} files of ${root} -> ${out}`);
 }
 
+/** Data-level paths in the sync itself (add/overwrite/delete), using the release classification. */
+export function syncLevel(plan) {
+  const changes = [...plan.add.map(path => ({ status: "A", path })), ...plan.overwrite.map(path => ({ status: "M", path })), ...plan.delete.map(path => ({ status: "D", path }))];
+  return classifyChanges(changes).level;
+}
+
+const APPROVAL_FIELDS = ["approvedBy", "approvedOn", "scope", "d1Backup", "rollbackPlan"];
+
+/**
+ * Combine every pre-sync gate. `automated` gates are verified by this tool; `manual` gates
+ * can only be checked for a complete record, so they are reported separately and never
+ * described as verified.
+ */
+export function evaluateGates({ plan, dryRun, snapshotMatchesSite, archiveMatchesSnapshot, dataApproval }) {
+  const level = syncLevel(plan);
+  const automated = [
+    { gate: "file differences decided", ok: plan.safe, detail: `${plan.unresolved.length} unresolved, ${plan.stale.length} stale` },
+    { gate: "rsync dry-run matches the plan", ok: !!dryRun && dryRun.ok, detail: dryRun ? JSON.stringify(dryRun) : "no --rsync-dry-run given" },
+    { gate: "backup snapshot matches the Site now", ok: snapshotMatchesSite === true, detail: snapshotMatchesSite === null ? "no --backup-snapshot given" : "" },
+    { gate: "backup archive restores to the snapshot", ok: archiveMatchesSnapshot === true, detail: archiveMatchesSnapshot === null ? "no --backup-archive given" : "" },
+  ];
+  const missing = dataApproval ? APPROVAL_FIELDS.filter(f => !String(dataApproval[f] ?? "").trim()) : APPROVAL_FIELDS;
+  const manual = [
+    { gate: "data change approval recorded (presence only, not verified)", required: level === "data", ok: level !== "data" || missing.length === 0, detail: level === "data" ? (missing.length ? `missing: ${missing.join(", ")}` : "record present") : "not required (no data-level path in this sync)" },
+  ];
+  return { level, automated, manual, passed: automated.every(g => g.ok) && manual.every(g => g.ok) };
+}
+
+function archiveMatches(archive, expected) {
+  const dir = mkdtempSync(join(tmpdir(), "kifu-restore-"));
+  try {
+    execFileSync("tar", ["-xzf", archive, "-C", dir]);
+    return compareManifest(expected, hashTree(dir)).ok;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 function preflight(args) {
-  const valueOptions = ["--root", "--decisions", "--rsync-dry-run", "--out"].map(o => option(args, o));
+  const valueOptions = ["--root", "--decisions", "--rsync-dry-run", "--out", "--backup-snapshot", "--backup-archive", "--data-approval"].map(o => option(args, o));
   const file = args.find(a => !a.startsWith("--") && !valueOptions.includes(a));
   if (!file) throw new Error("preflight requires <manifest.json>");
   const data = JSON.parse(readFileSync(file, "utf8"));
   if (data.schema !== MANIFEST_SCHEMA || !data.files) throw new Error("Unsupported manifest");
   const root = resolve(option(args, "--root") || ".");
-  const decisionsFile = option(args, "--decisions");
-  const decisions = decisionsFile ? JSON.parse(readFileSync(decisionsFile, "utf8")) : [];
-  const plan = planSync(data.files, hashTree(root), decisions);
-  const dryRunFile = option(args, "--rsync-dry-run");
-  const cross = dryRunFile ? crossCheckDryRun(plan, readFileSync(dryRunFile, "utf8")) : null;
+  const read = name => { const f = option(args, name); return f ? readFileSync(f, "utf8") : null; };
+  const decisions = JSON.parse(read("--decisions") ?? "[]");
+  const site = hashTree(root);
+  const plan = planSync(data.files, site, decisions);
+  const dryRunText = read("--rsync-dry-run");
+  const dryRun = dryRunText === null ? null : crossCheckDryRun(plan, dryRunText);
+  const snapshotText = read("--backup-snapshot");
+  const snapshot = snapshotText ? JSON.parse(snapshotText).files : null;
+  const snapshotMatchesSite = snapshot ? compareManifest(snapshot, site).ok : null;
+  const archive = option(args, "--backup-archive");
+  const archiveMatchesSnapshot = archive && snapshot ? archiveMatches(archive, snapshot) : archive ? false : null;
+  const approvalText = read("--data-approval");
+  const gates = evaluateGates({ plan, dryRun, snapshotMatchesSite, archiveMatchesSnapshot, dataApproval: approvalText ? JSON.parse(approvalText) : null });
+
   console.log(`preflight (read-only): ${root} -> ${data.repository}@${data.commit}`);
-  console.log(`  add ${plan.add.length}, overwrite ${plan.overwrite.length}, delete ${plan.delete.length}, unresolved ${plan.unresolved.length}`);
+  console.log(`  add ${plan.add.length}, overwrite ${plan.overwrite.length}, delete ${plan.delete.length}; level of this sync: ${gates.level}`);
   for (const u of plan.unresolved) console.log(`  UNRESOLVED ${u.action}: ${u.path}`);
   for (const p of plan.stale) console.log(`  stale decision (file changed or gone since review): ${p}`);
-  if (cross && !cross.ok) console.log(`  rsync dry-run disagrees with the plan: ${JSON.stringify(cross)}`);
+  console.log("  automated gates (verified by this tool):");
+  for (const g of gates.automated) console.log(`    [${g.ok ? "ok" : "NG"}] ${g.gate}${g.detail ? ` — ${g.detail}` : ""}`);
+  console.log("  manual gates (a person is responsible; the tool only checks that a record exists):");
+  for (const g of gates.manual) console.log(`    [${g.ok ? "ok" : "NG"}] ${g.gate} — ${g.detail}`);
   const out = option(args, "--out");
-  if (out) writeFileSync(out, JSON.stringify({ manifest: data.commit, root, plan, rsyncCheck: cross,
+  if (out) writeFileSync(out, JSON.stringify({ manifest: data.commit, root, plan, gates,
     decisionTemplate: plan.unresolved.map(u => ({ ...u, reason: "", decidedBy: "" })) }, null, 2) + "\n");
-  const safe = plan.safe && (!cross || cross.ok);
-  console.log(safe ? "preflight: SAFE TO SYNC (every overwrite/delete has a current decision)" : "preflight: STOP — do not sync. Bring Site-only changes into GitHub by PR, or record a decision per file, then re-run.");
-  if (!safe) process.exitCode = 3;
+  console.log(gates.passed
+    ? "preflight: GATES PASSED. The sync may proceed. This does NOT confirm the post-deploy checks (private access, iPhone smoke test) in docs/RELEASE.md §4-5."
+    : "preflight: STOP — do not sync. Resolve every NG gate above (bring Site-only changes into GitHub by PR, record per-file decisions, take and verify the backup), then re-run.");
+  if (!gates.passed) process.exitCode = 3;
 }
 
 function git(args, cwd) { return execFileSync("git", args, { cwd, encoding: "utf8" }); }

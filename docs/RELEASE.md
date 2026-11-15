@@ -71,29 +71,37 @@ node scripts/release.mjs preflight outputs/release-<short-sha>.json --root <site
    - Site側の変更を残すべき → **同期を止め**、その変更をGitHubへPRで取り込む。マージ後の新しいSHAで§1からやり直す。
    - GitHub側で置き換えてよい → `decisions.json`にその1件を記録する（`path`、`action`（`overwrite`／`delete`）、`siteSha256`（一覧のまま）、`reason`、`decidedBy`）。
 
-5. **停止条件**: 次のどれかに当てはまる間は同期しない。`preflight`は終了コード3（STOP）を返す。
-   - 判断のない上書き・削除がある。
-   - 判断の後にSite側のファイルが変わった（ハッシュが違う判断は「古い判断」として無効になる）。
-   - 保全（手順2）ができていない、またはD1・認証・公開設定に関わる差分がある。
+5. **ゲートの確認（同期の前に必ず）**: `preflight`は次のゲートをまとめて判定し、1つでもNGなら終了コード3（STOP）を返す。**通過しても「同期してよい」ことしか意味しない**。デプロイ後の確認（§4〜5）は別に必要。
 
-6. **同期方法の事前確認**: rsyncの空実行の結果を、preflightの予測と突き合わせる。除外設定の漏れなどで予測外の削除・転送があれば止まる。
+   | 種類 | ゲート | 誰が保証するか |
+   | --- | --- | --- |
+   | 自動 | 上書き・削除のすべてに、現在のハッシュに紐づく判断がある（判断の後にSiteが変われば無効） | ツールが検証 |
+   | 自動 | rsyncの空実行が予測（追加・上書き・削除）と一致する | ツールが検証 |
+   | 自動 | バックアップのスナップショットが、今のSiteと一致する（バックアップ後の変更を検出） | ツールが検証 |
+   | 自動 | バックアップのアーカイブを一時ディレクトリに展開すると、スナップショットと一致する | ツールが検証 |
+   | 手動 | 同期がD1・hosting binding・認証などの`data`判定のパスを含む場合、承認記録（`approvedBy`、`approvedOn`、`scope`、`d1Backup`、`rollbackPlan`）がそろっている | **人**。ツールは記録がそろっているかだけを確認し、内容の真偽は確認しない |
+   | 手動（ツール外） | Site versionを控えた、D1のバックアップを取った（`data`の場合）、デプロイ後のPrivate設定・iPhone確認 | **人**。§0・§4・§5で記録する |
+
+6. **同期方法の事前確認とゲートの実行**:
 
 ```sh
 rsync -a --checksum --delete --dry-run --itemize-changes \
   --exclude .git --exclude node_modules --exclude .sites-runtime --exclude .wrangler \
   <github-checkout>/ <sites-checkout>/ > outputs/rsync-dry-run.txt
 node scripts/release.mjs preflight outputs/release-<short-sha>.json --root <sites-checkout> \
-  --decisions decisions.json --rsync-dry-run outputs/rsync-dry-run.txt
+  --decisions decisions.json --rsync-dry-run outputs/rsync-dry-run.txt \
+  --backup-snapshot outputs/site-before-<date>.json --backup-archive outputs/site-backup-<date>.tgz \
+  [--data-approval approval.json]
 ```
 
-   `--checksum`は内容で比較させるため（日時とサイズだけの比較では内容の変更を見逃すことがある）。`SAFE TO SYNC`が出たときだけ次へ進む。
+   `--checksum`は内容で比較させるため（日時とサイズだけの比較では内容の変更を見逃すことがある）。`GATES PASSED`が出たときだけ次へ進む。
 
 7. **同期**: 手順6と同じ引数から`--dry-run --itemize-changes`を外して実行する。
 8. **同期後の照合**: `node scripts/release.mjs verify outputs/release-<short-sha>.json --root <sites-checkout>`。`verify: OK`以外ならデプロイしない。
 9. **復旧の確認**: 問題があれば`outputs/site-backup-<date>.tgz`を展開し、`node scripts/release.mjs verify outputs/site-before-<date>.json --root <復元先>`で、同期前と完全に同じに戻ったことを確かめる。
 10. Sitesソースにコミットする。メッセージに`GitHub <full-sha>`を含め、`decisions.json`の要約を`SESSION_LOG`へ残す。
 
-2026-11-15のリハーサル（GitHubの古いSHA＋Siteだけのファイル1件＋Site側の編集1件）で、1回目の`preflight`はSTOP（未判断8件）、判断を記録してrsyncの空実行と突き合わせるとSAFE、同期後の`verify`はOK、同期後の改ざんは`verify`で検出、バックアップからの復元は同期前のハッシュと一致した。判断後にSite側を編集すると「古い判断」として再びSTOPした。
+2026-11-15のリハーサル（rsync 3.2.7、GitHubの古いSHAを展開したSite＋Siteだけのファイル1件＋Site側の編集1件）: 判断もバックアップもない段階では`preflight`がSTOP。判断を記録し、`tar`のバックアップとスナップショットを用意すると全ゲートを通過（`GATES PASSED`）。同期後の`verify`はOK、同期後の改ざんは`verify`で検出、バックアップから同期前のハッシュどおりに復元できた。バックアップ後にSiteを編集すると、判断の無効化・空実行との不一致・スナップショットの不一致で再びSTOPした。
 
 ## 4. ビルド・Privateデプロイ（配備担当）
 
@@ -129,11 +137,11 @@ node scripts/release.mjs preflight outputs/release-<short-sha>.json --root <site
 
 ## 初回リリース（Sitesソースの同期）
 
-GitHubは検査済みスナップショットから新しい履歴で始めたため、Sitesソースの履歴とはつながっていない。初回は次の手順にする。
+GitHubは検査済みスナップショットから新しい履歴で始めたため、Sitesソースの履歴とはつながっていない。初回は次の手順にする。**SHAや変更範囲を文書に固定せず、実際にリリースする最新SHAで毎回求める**。
 
 1. 配備担当が現在のSitesソースのHEADとSite versionを控える。
-2. `--base`には、GitHubへ移管した最初のコミット`992fdd0c50ad5316dd8621b94ddffd271844ef19`を使い、変更の分類を確認する。2026-11-15時点（`main` `53557f6`）で配信物の変更は`lib/shogi.ts`（千日手・500手・入玉宣言の判定・不正局面検出）と`lib/lessons.ts`（「はじめての一手詰」の二歩修正）のみで判定は`app`。D1・API・依存関係の変更はない。実行時に再確認する。
-3. §3の手順3〜5（同期前の`preflight`）で、Site側にしかないファイルと内容の違うファイルをすべて洗い出す。共通の基準SHAがないため、差分を「不要」と決めつけず、1件ずつ「GitHubへ取り込む」か「置き換えてよい」かを判断して記録する。
+2. 候補SHA（その時点のGitHub `main`）をチェックアウトし、`npm run release:plan -- --base 992fdd0c50ad5316dd8621b94ddffd271844ef19`を実行する。`992fdd0`はGitHubへ移管した最初のコミットで、Siteの現在の版に最も近いGitHub側の基準。ただしSite側に移管後の独自変更があれば、この分類には現れない。
+3. その不足を補うのが§3の`preflight`。Site側にしかないファイルと内容の違うファイルを、共通の基準がない前提で1件ずつ判断する（差分を「不要」と決めつけない）。
 4. 以降は通常の手順に従う。
 
 ## リリース記録

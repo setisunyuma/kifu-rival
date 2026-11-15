@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { classifyChanges, compareManifest, crossCheckDryRun, isMaintenanceScript, planSync, listReleaseFiles, sameDependencies, servingScriptsUnchanged, sha256 } from "../scripts/release.mjs";
+import { classifyChanges, compareManifest, crossCheckDryRun, evaluateGates, isMaintenanceScript, planSync, listReleaseFiles, sameDependencies, servingScriptsUnchanged, sha256 } from "../scripts/release.mjs";
 
 const m = (path: string, status = "M") => ({ status, path });
 
@@ -163,4 +163,38 @@ test("post-sync verify: tampering after the sync is detected by the hash check",
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Gates (review of PR #9, round 3): passing must not imply unverified conditions.
+// ---------------------------------------------------------------------------
+const okPlan = planSync(github, { ...github });
+const okDry = crossCheckDryRun(okPlan, "");
+const allOk = { plan: okPlan, dryRun: okDry, snapshotMatchesSite: true, archiveMatchesSnapshot: true, dataApproval: null };
+
+test("gates: everything verified passes, and the manual gate is reported as not required", () => {
+  const g = evaluateGates(allOk);
+  assert.equal(g.passed, true);
+  assert.equal(g.level, "none");
+  assert.equal(g.manual[0].required, false);
+});
+
+test("gates: decided differences alone are not enough without a verified backup and dry-run", () => {
+  assert.equal(evaluateGates({ ...allOk, snapshotMatchesSite: null }).passed, false, "no snapshot");
+  assert.equal(evaluateGates({ ...allOk, snapshotMatchesSite: false }).passed, false, "snapshot of another state");
+  assert.equal(evaluateGates({ ...allOk, archiveMatchesSnapshot: null }).passed, false, "no archive");
+  assert.equal(evaluateGates({ ...allOk, archiveMatchesSnapshot: false }).passed, false, "archive does not restore");
+  assert.equal(evaluateGates({ ...allOk, dryRun: null }).passed, false, "dry-run is mandatory");
+});
+
+test("gates: a sync touching data-level paths requires a complete approval record (presence only)", () => {
+  const site = { ...github };
+  const plan = planSync({ ...github, "drizzle/0001_add.sql": H("sql") }, site);
+  assert.equal(evaluateGates({ ...allOk, plan, dryRun: crossCheckDryRun(plan, ">f+++++++++ drizzle/0001_add.sql\n") }).level, "data");
+  const base = { ...allOk, plan, dryRun: crossCheckDryRun(plan, ">f+++++++++ drizzle/0001_add.sql\n") };
+  assert.equal(evaluateGates(base).passed, false, "no approval");
+  assert.equal(evaluateGates({ ...base, dataApproval: { approvedBy: "user", approvedOn: "2026-11-15", scope: "add table", d1Backup: "", rollbackPlan: "x" } }).passed, false, "incomplete record");
+  const full = evaluateGates({ ...base, dataApproval: { approvedBy: "user", approvedOn: "2026-11-15", scope: "add table", d1Backup: "export taken", rollbackPlan: "restore export" } });
+  assert.equal(full.passed, true);
+  assert.match(full.manual[0].gate, /not verified/);
 });

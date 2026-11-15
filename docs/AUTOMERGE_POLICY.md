@@ -40,4 +40,6 @@
 
 ## 導入検証状態
 
-初回ソースのGitHub import、GitHub Actions権限/実行、同一repo内の安全なテストPRと拒否されるPRの実地検証がすべて終わるまで`KIF-063`を`VERIFIED`にしない。特にGitHubの`workflow_run`が返す`base.sha`が省略された場合は意図的にマージを保留し、実測に基づく改善案を台帳へ記録する。**自動マージ済みと偽って報告しない**。
+2026-11-15、GitHubへの147ファイルimport・初回CI・本人作成の安全PR #1について**`Source validation`成功→`Guarded auto-merge`成功→squash merge**を実地確認した。GitHubの`workflow_run` payloadではhead/base SHAが取得できた。詳細は`SESSION_LOG.md`を参照。
+
+ただし**危険なPRの拒否挙動の実地検証、main Rulesetの保護、Claude Codeクラウドからの実操作**は未完了。これらの条件がすべて終わるまで`KIF-063`を`VERIFIED`にしない。GitHubの`workflow_run`でbase SHAが欠落する別ケースは意図的に保留する。**CI成功やマージ済みの範囲を誇張しない**。

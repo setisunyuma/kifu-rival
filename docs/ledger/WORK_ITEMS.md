@@ -17,8 +17,8 @@
 - Owner: ChatGPT → Claude
 - Depends: KIF-001
 - Acceptance: ユーザー管理の**Public** GitHubリポジトリを作り、安全な最新ソース・全台帳・テストを移管し、Claude Codeでcloneできることを確認。実行Siteは本人限定のPrivateを保ち、差分・同期責任を明確化。
-- Evidence: ユーザーのPublic承認（ADR-007）。2026-11-15 GitHubコネクタの`get_repo`で`setisunyuma/kifu-rival`（ID 1458595649、Public、本人admin可、size=0）を確認。初回確認時点は空repoで、実ソースの移管・CI・Claude cloneは未実施。
-- Next: `KIF-062`で点検した最新スナップショットからのみPublic GitHubの新履歴を作り、GitHub CI実行・Claude clone・PR作成を検証する。
+- Evidence: ユーザーのPublic承認（ADR-007）。`setisunyuma/kifu-rival`（ID 1458595649、Public、本人admin可）は作成当初`size=0`。2026-11-15に検証済みスナップショット147ファイルを新Git履歴のコミット`992fdd0c50ad5316dd8621b94ddffd271844ef19`として移管し、GitHub tree APIで147ファイルを照合。初回CI [run 43696606531](https://github.com/setisunyuma/kifu-rival/actions/runs/43696606531)成功、PR #1も自動マージ成功。**Claude Codeクラウドからのclone/PR操作は未検証**。
+- Next: Claude Codeクラウドで当該Public repoを選んでcloneし、PR作成・最新mainの取得を確認。GitHubと非公開Siteの同期はKIF-003。
 
 ## KIF-003 — GitHubとSitesの安全なリリース経路
 - Status: BACKLOG
@@ -161,8 +161,8 @@
 - Owner: ChatGPT → Claude
 - Depends: KIF-002
 - Acceptance: TypeScript、lint、ユニット、基本E2E、台帳検査、ビルドがPRごとに走り、失敗時にmerge/公開を防ぐ。
-- Evidence: Secretsとデプロイ権限を渡さない `.github/workflows/verify.yml` を追加。GitHubリポジトリ・PR実行・ブランチ保護は未確認。
-- Next: Public GitHubへの移管後にCIの実行を確認し、失敗を防ぐbranch protection等を検討してから `VERIFIED` にする。
+- Evidence: Secretsとデプロイ権限を渡さない `.github/workflows/verify.yml` を追加。GitHub初回pushの[run 43696606531](https://github.com/setisunyuma/kifu-rival/actions/runs/43696606531)とPR #1の[run 43696850845](https://github.com/setisunyuma/kifu-rival/actions/runs/43696850845)はいずれも`verify`成功。main rulesetは未作成、基本E2Eも未導入。
+- Next: GitHub SettingsでmainのPR必須・`verify`必須・force push禁止を設定し、ブラウザE2E検証を追加してから `VERIFIED` とする。
 
 ## KIF-062 — Publicソースの機密・ライセンス公開点検
 - Status: VERIFIED
@@ -179,5 +179,5 @@
 - Owner: ChatGPT → Claude
 - Depends: KIF-002, KIF-061
 - Acceptance: 本人の同一repo PRがCI全成功・現行head/base・変更範囲・サイズを満たす場合に無人`squash merge`される。一方、フォーク・失敗CI・古いコミット・インフラ/DB/公開設定変更等は自動マージされない。`main`のPR/CI保護、GitHubでの実地動作が確認でき、Private Siteを自動デプロイしない。
-- Evidence: `.github/workflows/guarded-auto-merge.yml`と`scripts/guarded-auto-merge.mjs`を実装。`tests/guarded-auto-merge.spec.ts`を単体テストに追加、17件PASS（以前13件）。GitHub Actionsでの実行・branch ruleset・最初のPRの成功は未確認。
-- Next: Public GitHubへのソース移管とCIの起動を確認。安全な小PRと要手動PRで実地検証し、GitHub Settingsでmain Ruleset（PR必須・verify必須・force push禁止）を設定する。CIイベントの`base.sha`が欠落する場合は安全な代替照合方法を検証。
+- Evidence: `.github/workflows/guarded-auto-merge.yml`と`scripts/guarded-auto-merge.mjs`を実装、単体テスト4件追加（全体17件PASS）。GitHub Publicへ移管後、PR #1のCI [run 43696850845](https://github.com/setisunyuma/kifu-rival/actions/runs/43696850845)成功→[Guarded auto-merge run 43696911543](https://github.com/setisunyuma/kifu-rival/actions/runs/43696911543)成功→squash commit `a1fb7f516487fb4092f601169a482a7463dd79ff`、本人操作なしでマージ済み。高リスクPR拒否の実地検証とmain rulesetは未完了。
+- Next: GitHub Settingsでmain Ruleset（PR必須・verify必須・force push禁止）を設定。要手動PRの拒否テスト・Claude CodeクラウドからのPR発行確認を実施。CIイベントのbase SHA欠落ケースは安全停止のまま検証する。

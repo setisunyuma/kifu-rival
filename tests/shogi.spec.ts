@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyMove, checkDeclaration, fromSfen, Game, initialGame, JISHOGI_MOVE_LIMIT, materialPoints, isInCheck, Kind, legalMoves, playMove, puzzleGame, Side, toSfen, usi } from "../lib/shogi";
+import { applyMove, checkDeclaration, fromSfen, Game, initialGame, JISHOGI_MOVE_LIMIT, materialPoints, validatePosition, isInCheck, Kind, legalMoves, playMove, puzzleGame, Side, toSfen, usi } from "../lib/shogi";
 import { LESSONS } from "../lib/lessons";
 
 test("starting position has the right number of pieces and legal pawn moves", () => {
@@ -359,4 +359,25 @@ test("500 moves without a result is jishogi (draw), postponed while a run of che
   assert.equal(atLimit.history.length, JISHOGI_MOVE_LIMIT);
   assert.equal(atLimit.result, "playing");
   assert.equal(play(atLimit, "1a2a").result, "draw", "the reply escapes and gives no check");
+});
+
+test("validatePosition accepts real positions, including every lesson and the 593-move position", () => {
+  assert.deepEqual(validatePosition(initialGame()), []);
+  for (const lesson of LESSONS) assert.deepEqual(validatePosition(lesson.setup()), [], lesson.title);
+  assert.deepEqual(validatePosition(fromSfen("R8/2K1S1SSk/4B4/9/9/9/9/9/1L1L1L3 b RBGSNLP3g3n17p 1")), []);
+  assert.deepEqual(validatePosition(fromSfen("lnsgkgsnl/1r5b1/ppppppppp/9/9/2P6/PP1PPPPPP/1B5R1/LNSGKGSNL w - 2")), []);
+});
+
+test("validatePosition reports nifu, dead pieces, impossible counts, kings and a king left in check", () => {
+  const issues = (sfen: string) => validatePosition(fromSfen(sfen));
+  assert.match(issues("4k4/9/9/9/4P4/9/4P4/9/4K4 b - 1").join(), /二歩/);
+  assert.match(issues("P3k4/9/9/9/9/9/9/9/4K4 b - 1").join(), /歩に行き所がない/);
+  assert.match(issues("4k4/N8/9/9/9/9/9/9/4K4 b - 1").join(), /桂に行き所がない/);
+  assert.match(issues("4k4/9/9/9/9/9/9/9/l3K4 b - 1").join(), /後手の香に行き所がない/);
+  assert.deepEqual(issues("4k4/9/9/9/9/9/9/+P8/4K4 b - 1"), [], "a tokin on the last ranks is fine");
+  assert.match(issues("4k4/9/9/9/9/9/9/9/4K4 b 19P 1").join(), /歩が19枚/);
+  assert.match(issues("4k4/9/9/9/9/9/9/9/9 b - 1").join(), /先手の玉が0枚/);
+  assert.match(issues("4k4/9/9/9/9/9/9/9/3KK4 b - 1").join(), /先手の玉が2枚/);
+  assert.match(issues("4k4/9/9/9/9/9/9/9/4R3K b - 1").join(), /手番でない後手に王手/);
+  assert.deepEqual(issues("4k4/9/9/9/9/9/9/9/4R3K w - 1"), [], "the side to move may be in check");
 });

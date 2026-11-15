@@ -56,8 +56,6 @@ export const LESSONS: Lesson[] = [
       { r: 2, c: 4, kind: "KI", owner: "black" },
       { r: 0, c: 3, kind: "FU", owner: "white" },
       { r: 0, c: 5, kind: "FU", owner: "white" },
-      { r: 1, c: 3, kind: "FU", owner: "white" },
-      { r: 1, c: 5, kind: "FU", owner: "white" },
     ], { black: { HI: 1 } }),
   },
 ];

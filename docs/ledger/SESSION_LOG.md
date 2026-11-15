@@ -214,3 +214,10 @@
 - Actor: Claude（Claude Codeクラウド）
 - Review: 「`syncLevel()`がパスだけで判定し、localStorageキーの変更などを見逃しうる」「スナップショットの対象外を明確に」との指摘を反映。中身の検出を`release:plan`と`preflight`で共有、`release:plan`の結果を`preflight`の必須入力にして判定を合成、対象外の一覧とrsync除外の単一定義、シンボリックリンク・特殊ファイルで停止。
 - Validation: `test:unit` 82/82 PASS、ミューテーション5種を検出、通しの試験で中身による`data`判定・シンボリックリンクでの停止・ローカルの秘密とD1状態の保持を確認。PR #9は手動レビュー対象のまま、Siteへの同期・配備はしていない。
+
+## 2026-11-15 — PR #9 レビュー第5回: 保存処理の検出漏れ2件
+
+- Actor: Claude（Claude Codeクラウド）
+- Review: 括弧の前の空白・改行がある`clear`、`removeItem(STORAGE_KEY)`→`clear()`の同数置換を見逃す、との指摘を反映。コメントと空白を除いた上で保存関連の文を多重集合で比較し、判定できない変更も`data`に倒す。
+- Finding: 実際のmainで`release:plan`を実行すると、初回リリースは`data`判定（保存内容に項目追加）。旧版は追加項目を無視できるが、旧版に戻した後の保存で追加項目は失われる点を手順書に記載。
+- Validation: `test:unit` 89/89 PASS（CLIでの`plan`・`preflight`の実経路テストを含む）、ミューテーション4種を検出。PR #9は手動レビュー対象のまま。

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -261,4 +263,92 @@ test("rsync excludes cover every ignored path, so local data such as .wrangler s
   // A dry-run that deletes an ignored file means the excludes were not applied: stop.
   const plan = planSync(github, { ...github });
   assert.deepEqual(crossCheckDryRun(plan, "*deleting   .dev.vars\n").unexpectedDeletions, [".dev.vars"]);
+});
+
+// ---------------------------------------------------------------------------
+// Review of PR #9, round 5: whitespace/newlines and same-count destructive swaps.
+// ---------------------------------------------------------------------------
+const KEY = 'const STORAGE_KEY = "kifu-rival.v1";\n';
+const BEFORE_RM = KEY + "export function reset() { window.localStorage.removeItem(STORAGE_KEY); }\n";
+const AFTER_CLEAR = KEY + "export function reset() { window.localStorage.clear(); }\n";
+
+test("storage check: clear with spaces or a line break before the parenthesis is a data change", () => {
+  assert.equal(storageChange(KEY, KEY + "window.localStorage.clear ();").changed, true);
+  assert.equal(storageChange(KEY, KEY + "window.localStorage\n  .clear\n  ();").changed, true);
+  assert.equal(storageChange(KEY, KEY + "indexedDB . deleteDatabase ( 'x' );").changed, true);
+});
+
+test("storage check: removeItem(STORAGE_KEY) -> clear() with the same count is a data change", () => {
+  const r = storageChange(BEFORE_RM, AFTER_CLEAR);
+  assert.equal(r.changed, true);
+  assert.match(r.reasons.join(" "), /localStorage\.clear\(\)/);
+});
+
+test("storage check: UI-only changes and whitespace-only edits of storage code are not data", () => {
+  const ui = (label: string) => KEY + `export const Title = () => "${label}";\nwindow.localStorage.getItem(STORAGE_KEY);\n`;
+  assert.equal(storageChange(ui("棋友"), ui("棋友 KIYU")).changed, false);
+  assert.equal(storageChange("window.localStorage.getItem(STORAGE_KEY);", "window.localStorage.getItem( STORAGE_KEY );").changed, false);
+});
+
+test("storage check: comments that mention storage are not code", () => {
+  assert.equal(storageChange("const a = 1;", "/* kept in localStorage, never sent */ const a = 1;\n// localStorage.clear() is not called here").changed, false);
+  assert.equal(storageChange("const u = 'https://x';", "const u = 'https://x'; localStorage.clear();").changed, true, "URLs do not hide code after them");
+});
+
+test("storage check: a storage statement whose effect cannot be judged is still data", () => {
+  assert.equal(storageChange("localStorage.setItem(KEY, JSON.stringify(a));", "localStorage.setItem(KEY, JSON.stringify(b));").changed, true);
+});
+
+const RELEASE = resolve("scripts/release.mjs");
+const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+const run = (cwd: string, ...args: string[]) => spawnSync(process.execPath, [RELEASE, ...args], { cwd, encoding: "utf8" });
+
+test("release:plan (real git diff) classifies removeItem -> clear as data and writes the plan", () => {
+  const repo = mkdtempSync(join(tmpdir(), "kifu-plan-"));
+  try {
+    git(repo, "init", "-q"); git(repo, "config", "user.email", "t@example.com"); git(repo, "config", "user.name", "t");
+    mkdirSync(join(repo, "app"));
+    writeFileSync(join(repo, "app", "store.ts"), BEFORE_RM); git(repo, "add", "."); git(repo, "commit", "-qm", "a");
+    const base = git(repo, "rev-parse", "HEAD");
+    writeFileSync(join(repo, "app", "store.ts"), AFTER_CLEAR); git(repo, "commit", "-qam", "b");
+    const r = run(repo, "plan", "--base", base, "--out", join(repo, "plan.json"));
+    assert.equal(r.status, 2, r.stdout + r.stderr);
+    assert.equal(JSON.parse(readFileSync(join(repo, "plan.json"), "utf8")).level, "data");
+    writeFileSync(join(repo, "app", "store.ts"), AFTER_CLEAR + 'export const label = "x";\n'); git(repo, "commit", "-qam", "c");
+    const head = git(repo, "rev-parse", "HEAD");
+    const ui = run(repo, "plan", "--base", git(repo, "rev-parse", "HEAD~1"), "--head", head);
+    assert.equal(ui.status, 0, "a UI-only change after that is app, not data");
+    assert.match(ui.stdout, /level=app/);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("preflight (real files): a same-count swap to clear() stops without approval even when every other gate passes", () => {
+  const dir = mkdtempSync(join(tmpdir(), "kifu-pre-"));
+  try {
+    const gh = join(dir, "gh"), site = join(dir, "site");
+    for (const d of [gh, site]) mkdirSync(join(d, "app"), { recursive: true });
+    writeFileSync(join(gh, "app", "store.ts"), AFTER_CLEAR); writeFileSync(join(site, "app", "store.ts"), BEFORE_RM);
+    const files = { "app/store.ts": sha256(AFTER_CLEAR) };
+    writeFileSync(join(dir, "release.json"), JSON.stringify({ schema: 1, repository: "t", commit: "c1", files }));
+    writeFileSync(join(dir, "plan.json"), JSON.stringify({ head: "c1", level: "app" }));
+    writeFileSync(join(dir, "dec.json"), JSON.stringify([{ path: "app/store.ts", action: "overwrite", siteSha256: sha256(BEFORE_RM), reason: "r", decidedBy: "u" }]));
+    writeFileSync(join(dir, "dry.txt"), ">f.st...... app/store.ts\n");
+    execFileSync("tar", ["-czf", join(dir, "backup.tgz"), "-C", site, "."]);
+    assert.equal(run(dir, "snapshot", "--root", site, "--out", join(dir, "snap.json")).status, 0);
+    const args = ["preflight", join(dir, "release.json"), "--root", site, "--github-root", gh, "--release-plan", join(dir, "plan.json"),
+      "--decisions", join(dir, "dec.json"), "--rsync-dry-run", join(dir, "dry.txt"), "--backup-snapshot", join(dir, "snap.json"), "--backup-archive", join(dir, "backup.tgz")];
+    const stop = run(dir, ...args);
+    assert.equal(stop.status, 3, stop.stdout);
+    assert.match(stop.stdout, /level of this release: data/);
+    assert.match(stop.stdout, /\[NG\] data change approval/);
+    assert.doesNotMatch(stop.stdout, /\[NG\] (release plan|GitHub checkout|no symlinks|file differences|rsync|backup)/, "only the approval gate is missing");
+    writeFileSync(join(dir, "appr.json"), JSON.stringify(approval));
+    const pass = run(dir, ...args, "--data-approval", join(dir, "appr.json"));
+    assert.equal(pass.status, 0, pass.stdout);
+    assert.match(pass.stdout, /GATES PASSED/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

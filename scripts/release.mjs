@@ -93,27 +93,50 @@ export function classifyChanges(changes, signals = {}) {
 /** Served source files whose content can change what is stored on the user's device. */
 export const SERVED_CODE = p => /^(app|lib|components|hooks)\/.+\.(ts|tsx|js|jsx|mjs)$/.test(p);
 
+/**
+ * Storage facts of a source text. Whitespace (spaces, tabs, newlines) is removed first,
+ * so `localStorage .clear ()` or a call split over lines is seen like `localStorage.clear()`.
+ * - keys: storage key literals (STORAGE_KEY = "...", getItem/setItem/removeItem("..."), kifu-rival.vN)
+ * - statements: every statement that touches localStorage/sessionStorage/indexedDB, cut at the
+ *   next ";" and compared as a multiset. Any added, removed or changed storage statement counts,
+ *   including a same-count swap such as removeItem(STORAGE_KEY) -> clear().
+ * Limits (documented in docs/RELEASE.md): storage reached through an alias (e.g. a variable
+ * holding window.localStorage passed elsewhere) is only seen where the name itself appears.
+ */
 function storageFacts(text) {
-  if (text === null || text === undefined) return { keys: new Set(), destructive: 0 };
+  if (text === null || text === undefined) return { keys: new Set(), statements: [] };
+  // Comments are not code: drop /* ... */ blocks and // line comments (not "://" in URLs).
+  const code = text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+  const t = code.replace(/\s+/g, "");
   const keys = new Set();
-  for (const m of text.matchAll(/STORAGE_KEY\s*=\s*["'`]([^"'`]+)["'`]/g)) keys.add(m[1]);
-  for (const m of text.matchAll(/(?:local|session)Storage\.(?:getItem|setItem|removeItem)\(\s*["'`]([^"'`]+)["'`]/g)) keys.add(m[1]);
-  for (const m of text.matchAll(/kifu-rival\.v\d+/g)) keys.add(m[0]);
-  const destructive = (text.match(/(?:local|session)Storage\.(?:removeItem|clear)\(|indexedDB\.deleteDatabase\(/g) || []).length;
-  return { keys, destructive };
+  for (const m of t.matchAll(/STORAGE_KEY=["'`]([^"'`]+)["'`]/g)) keys.add(m[1]);
+  for (const m of t.matchAll(/(?:local|session)Storage\.(?:getItem|setItem|removeItem)\(["'`]([^"'`]+)["'`]/g)) keys.add(m[1]);
+  for (const m of t.matchAll(/kifu-rival\.v\d+/g)) keys.add(m[0]);
+  const statements = [...t.matchAll(/(?:localStorage|sessionStorage|indexedDB)[^;]*/g)].map(m => m[0]).sort();
+  return { keys, statements };
 }
 
+const DESTRUCTIVE = /(?:local|session)Storage\.(?:removeItem|clear)\(|indexedDB\.deleteDatabase\(/;
+
 /**
- * Content check for on-device data (localStorage etc.). A change of storage keys, or new
- * removeItem/clear/deleteDatabase calls, is a data change even though the path is ordinary
- * app code. Used by both `plan` (Git diff) and `preflight` (Site vs GitHub content).
+ * Content check for on-device data (localStorage etc.). Changed storage keys, or any change
+ * to a storage statement (a destructive one in particular), is a data change even though the
+ * path is ordinary app code. When a storage statement changes and its effect cannot be judged,
+ * it is still data (fail safe). Used by both `plan` (Git diff) and `preflight` (Site vs GitHub).
  */
 export function storageChange(before, after) {
   const a = storageFacts(before), b = storageFacts(after);
   const reasons = [];
   const removed = [...a.keys].filter(k => !b.keys.has(k)), added = [...b.keys].filter(k => !a.keys.has(k));
   if (removed.length || added.length) reasons.push(`storage keys changed (removed: ${removed.join(", ") || "-"}; added: ${added.join(", ") || "-"})`);
-  if (b.destructive > a.destructive) reasons.push("new removeItem/clear/deleteDatabase call");
+  const count = list => list.reduce((m, x) => m.set(x, (m.get(x) ?? 0) + 1), new Map());
+  const ca = count(a.statements), cb = count(b.statements);
+  const gained = [...cb].filter(([x, n]) => n > (ca.get(x) ?? 0)).map(([x]) => x);
+  const lost = [...ca].filter(([x, n]) => n > (cb.get(x) ?? 0)).map(([x]) => x);
+  const destructive = gained.filter(x => DESTRUCTIVE.test(x));
+  if (destructive.length) reasons.push(`new or changed destructive storage operation: ${destructive.join(" | ")}`);
+  const other = [...gained.filter(x => !DESTRUCTIVE.test(x)), ...lost];
+  if (other.length) reasons.push(`storage statement changed (effect not judged; treated as data): ${other.join(" | ")}`);
   return { changed: reasons.length > 0, reasons };
 }
 

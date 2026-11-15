@@ -31,7 +31,14 @@ npm run release:plan -- --base <released> --out outputs/plan-<short-sha>.json
 | `none` | 文書・テスト・CI・リポジトリ管理用スクリプトのみ（明示リストに載ったもの）。配信物は変わらない | 配備は任意 |
 | `app` | 画面・将棋ロジック・教材の変更 | 通常リリース。§2へ |
 | `runtime` | API・Worker・依存関係・ビルド設定・配信ファイルの削除・**どの規則にも当てはまらない未分類ファイル**・`package.json`のビルド／起動／インストール系スクリプトやnpmのライフサイクルフック（`preinstall`・`postinstall`・`prepare`等）の変更 | `npm run build`と`npm start`でビルド済みWorkerを確認してから§2へ |
-| `data` | D1マイグレーション・スキーマ・`drizzle.config.ts`・hosting binding・認証。加えて、配信コード（`app/`・`lib/`・`components/`・`hooks/`）の**中身**で、端末の保存データに関わる変更（`kifu-rival.v*`・`STORAGE_KEY`・`localStorage`のキーの変更、`removeItem`・`clear`・`deleteDatabase`の追加） | **中断**（終了コード2）。§データ の条件をユーザーが承認するまで配備しない |
+| `data` | D1マイグレーション・スキーマ・`drizzle.config.ts`・hosting binding・認証。加えて、配信コード（`app/`・`lib/`・`components/`・`hooks/`）の**中身**で端末の保存データに関わる変更（下の「保存処理の変更の検出」） | **中断**（終了コード2）。§データ の条件をユーザーが承認するまで配備しない |
+
+### 保存処理の変更の検出（`release:plan`と`preflight`で共通）
+
+- 対象: 配信コードの中の`localStorage`・`sessionStorage`・`indexedDB`を含む文と、保存キー（`STORAGE_KEY = "..."`、`getItem`/`setItem`/`removeItem`の文字列キー、`kifu-rival.vN`）。
+- 比較の前にコメントを除き、空白・改行を取り除く。`localStorage .clear ()`や改行をはさんだ呼び出しも同じ文として扱う。
+- 保存に関わる文を引数まで含めて1件ずつ比べ、追加・削除・変更があれば`data`。`removeItem(STORAGE_KEY)`から`clear()`への同数の置き換えも検出する。影響を判定できない変更（保存する内容の変更など）も**通常の変更に落とさず`data`**とする。保存処理に触れない画面の変更や、空白だけの変更は`data`にしない。
+- 限界: 保存APIを別名の変数に入れて別の場所で使う書き方は、その名前（`localStorage`等）が現れる箇所しか検出できない。棋友のコードではこの書き方をしない。
 
 判定は**安全側**に倒す。分類規則に載っていない新しいファイルは`runtime`として確認対象にする。`package.json`は、依存関係・`engines`等が不変で、かつ変更されたスクリプトがすべて管理用（`lint`・`test`・`test:*`・`ledger:check`・`public:check`・`release:*`）の場合だけ`none`になる。
 
@@ -153,7 +160,8 @@ GitHubは検査済みスナップショットから新しい履歴で始めた�
 1. 配備担当が現在のSitesソースのHEADとSite versionを控える。
 2. 候補SHA（その時点のGitHub `main`）をチェックアウトし、`npm run release:plan -- --base 992fdd0c50ad5316dd8621b94ddffd271844ef19`を実行する。`992fdd0`はGitHubへ移管した最初のコミットで、Siteの現在の版に最も近いGitHub側の基準。ただしSite側に移管後の独自変更があれば、この分類には現れない。
 3. その不足を補うのが§3の`preflight`。Site側にしかないファイルと内容の違うファイルを、共通の基準がない前提で1件ずつ判断する（差分を「不要」と決めつけない）。
-4. 以降は通常の手順に従う。
+4. 2026-11-15時点の`main`（`7f9e5fc`）で試すと、判定は`data`になる。理由は`app/rival-app.tsx`の保存内容に`declarationRule`と`lessonAttempts`が加わったこと。追加された項目は旧版のコードでは無視されるため、新版の保存データを旧版が読めなくなることはない。ただし旧版に戻した後に保存すると、追加項目（回答記録・規則の設定）は失われる。承認記録の`rollbackPlan`にこの点を書く。実際の判定は、リリースする最新SHAで再実行して確かめる。
+5. 以降は通常の手順に従う。
 
 ## リリース記録
 

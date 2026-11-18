@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { runInNewContext } from "node:vm";
 import { initialGame, legalMoves, playMove, toSfen, usi } from "../lib/shogi";
-import { UsiAdapter, EngineError, analysisMove, enginePositionKey, parseInfo, positionCommand } from "../lib/engine/usi-adapter";
+import { MAX_SEARCH_NODES, UsiAdapter, EngineError, analysisMove, enginePositionKey, parseInfo, positionCommand } from "../lib/engine/usi-adapter";
 import type { EngineAnalysis, EngineCandidate, UsiTransport } from "../lib/engine/usi-adapter";
 import { STRENGTH_PROFILES, choosePolicyMove, decideRivalAction } from "../lib/engine/rival-policy";
 
@@ -30,8 +30,7 @@ class FakeTransport implements UsiTransport {
 }
 
 const candidate = (move: string, value: number, rank = 1): EngineCandidate => ({ move, score: { kind: "cp", value }, rank, depth: 8, pv: [move] });
-const sample = (rows: EngineCandidate[], bestmove = "7g7f"): EngineAnalysis => {
-  const game = initialGame();
+const sample = (rows: EngineCandidate[], bestmove = "7g7f", game = initialGame()): EngineAnalysis => {
   return { sfen: toSfen(game), positionKey: enginePositionKey(game), bestmove, candidates: rows, completed: true, elapsedMs: 10, requestedMs: 10 };
 };
 
@@ -41,6 +40,23 @@ test("USI: synchronous handshake and options are received before commands return
   assert.equal(engine.name, "Test engine");
   assert.ok(transport.sent.includes("setoption name Use_NNUE value false"));
   await assert.rejects(engine.analyze(initialGame(), { movetimeMs: 0 }), (e: EngineError) => e.code === "input");
+  engine.close();
+});
+
+test("USI: a node budget is sent with the time cap and validated before searching", async () => {
+  const t = new FakeTransport(), engine = new UsiAdapter(t);
+  await engine.initialize();
+  for (const nodes of [0, 1.5, MAX_SEARCH_NODES + 1]) {
+    await assert.rejects(engine.analyze(initialGame(), { nodes, movetimeMs: 100, multiPv: 1 }), (e: EngineError) => e.code === "input");
+  }
+  assert.equal(t.sent.some(c => c.startsWith("go ")), false);
+  const pending = engine.analyze(initialGame(), { nodes: 5000, movetimeMs: 200, multiPv: 1 });
+  assert.ok(t.sent.includes("go nodes 5000 movetime 200"));
+  t.line("info depth 7 score cp 40 nodes 5001 time 12 pv 7g7f");
+  t.line("bestmove 7g7f");
+  const result = await pending;
+  assert.equal(result.requestedNodes, 5000);
+  assert.equal(result.requestedMs, 200);
   engine.close();
 });
 
@@ -135,28 +151,61 @@ test("policy: adaptive profiles preserve mate scores and avoid negative mates wi
   }
 });
 
-test("policy: no randomness; budgets, easing toward a target lead, style and purpose are deterministic", () => {
+test("policy: no randomness; tolerance, close-game lead, style and purpose are deterministic", () => {
   const game = initialGame(), result = sample([candidate("7g7f", 100), candidate("2g2f", 60, 2), candidate("5g5f", -200, 3)]);
-  for (const style of ["balanced", "active", "solid"] as const) {
-    const config = { strength: "practice" as const, style };
+  for (const strength of ["strong", "balanced", "practice"] as const) for (const style of ["balanced", "active", "solid"] as const) {
+    const config = { strength, style };
     const choice = choosePolicyMove(game, result, config)!;
     assert.notEqual(choice.notation, "5g5f");
-    assert.ok((choice.lossCp ?? 0) <= STRENGTH_PROFILES.practice.budgetCp);
+    assert.ok((choice.lossCp ?? 0) <= STRENGTH_PROFILES[strength].toleranceCp);
     assert.deepEqual(choice, choosePolicyMove(game, result, config));
   }
-  assert.equal(choosePolicyMove(game, result, { strength: "strong", style: "active" })?.notation, "7g7f");
-  // Behind or level: the best candidate in the budget is chosen (no deliberate error).
-  assert.equal(choosePolicyMove(game, result, { strength: "practice", style: "balanced" })?.notation, "7g7f");
-  // Far ahead: practice eases toward a +100 lead, but never beyond its 200cp budget.
-  const ahead = sample([candidate("7g7f", 600), candidate("2g2f", 450, 2), candidate("5g5f", 120, 3)]);
-  const eased = choosePolicyMove(game, ahead, { strength: "practice", style: "balanced" })!;
+  // Level or behind: the best candidate is chosen; weaker settings read less instead of erring on purpose.
+  for (const strength of ["strong", "balanced", "practice"] as const) {
+    assert.equal(choosePolicyMove(game, result, { strength, style: "balanced" })?.notation, "7g7f");
+  }
+  // Far ahead in a close game: prefer a move that leaves nothing to be taken (inside the tolerance);
+  // the margin itself is not lowered on purpose.
+  const opened = playMove(game, legalMoves(game).find(m => usi(m) === "7g7f")!);
+  const reply = playMove(opened, legalMoves(opened).find(m => usi(m) === "3c3d")!);
+  const ahead = sample([candidate("8h2b+", 600), candidate("2g2f", 580, 2), candidate("5g5f", 400, 3)], "8h2b+", reply);
+  const eased = choosePolicyMove(reply, ahead, { strength: "practice", style: "balanced" })!;
   assert.equal(eased.notation, "2g2f");
-  assert.match(eased.reason, /差を100付近/);
+  assert.match(eased.reason, /駒を取られない落ち着いた候補/);
+  // The calm preference never reaches outside the tolerance or toward a lower margin by itself.
+  const calmFar = sample([candidate("8h2b+", 600), candidate("2g2f", 500, 2)], "8h2b+", reply);
+  assert.equal(choosePolicyMove(reply, calmFar, { strength: "practice", style: "balanced" })?.notation, "8h2b+");
+  const level = sample([candidate("7g7f", 600), candidate("2g2f", 580, 2), candidate("5g5f", 560, 3)]);
+  assert.equal(choosePolicyMove(game, level, { strength: "practice", style: "balanced" })?.notation, "7g7f");
+  // Easing never hands back the lead, even when a candidate inside the tolerance would.
+  const narrow = sample([candidate("7g7f", 320), candidate("2g2f", 270, 2)]);
+  assert.equal(choosePolicyMove(game, narrow, { strength: "practice", style: "balanced" })?.notation, "7g7f");
   // Purpose "win" disables easing.
-  assert.equal(choosePolicyMove(game, ahead, { strength: "practice", style: "balanced", purpose: "win" })?.notation, "7g7f");
+  assert.equal(choosePolicyMove(reply, ahead, { strength: "practice", style: "balanced", purpose: "win" })?.notation, "8h2b+");
   // A large gap to the second candidate is treated as a forced move.
   const forced = sample([candidate("7g7f", 400), candidate("2g2f", 100, 2)]);
   assert.equal(choosePolicyMove(game, forced, { strength: "practice", style: "active" })?.notation, "7g7f");
+});
+
+test("policy: style never widens the strength's tolerance and strength never depends on style", () => {
+  // From the start, 7g7f opens the bishop and 2g2f does not capture; give a capture-like bonus no room.
+  const opened = playMove(initialGame(), legalMoves(initialGame()).find(m => usi(m) === "7g7f")!);
+  const reply = playMove(opened, legalMoves(opened).find(m => usi(m) === "3c3d")!);
+  const capture = "8h2b+", quiet = "2g2f";
+  for (const strength of ["strong", "balanced", "practice"] as const) {
+    const tolerance = STRENGTH_PROFILES[strength].toleranceCp;
+    // The capture is just outside the tolerance: no style may pick it.
+    const outside = sample([candidate(quiet, 100), candidate(capture, 100 - tolerance - 1, 2)], quiet, reply);
+    for (const style of ["balanced", "active", "solid"] as const) {
+      assert.equal(choosePolicyMove(reply, outside, { strength, style, purpose: "win" })?.notation, quiet);
+    }
+    // Inside the tolerance the attacking style prefers the capture; the natural style keeps the best.
+    const within = sample([candidate(quiet, 100), candidate(capture, 100 - Math.min(tolerance, 10), 2)], quiet, reply);
+    assert.equal(choosePolicyMove(reply, within, { strength, style: "active", purpose: "win" })?.notation, capture);
+    assert.equal(choosePolicyMove(reply, within, { strength, style: "balanced", purpose: "win" })?.notation, quiet);
+  }
+  // Reading depth is set by strength alone.
+  assert.ok(STRENGTH_PROFILES.strong.nodes > STRENGTH_PROFILES.balanced.nodes && STRENGTH_PROFILES.balanced.nodes > STRENGTH_PROFILES.practice.nodes);
 });
 
 test("policy: resignation depends on purpose; engine 'win' becomes a declaration", () => {

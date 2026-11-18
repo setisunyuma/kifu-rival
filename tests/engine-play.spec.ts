@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { initialGame, legalMoves, playMove, usi } from "../lib/shogi";
 import { EngineRival } from "../lib/engine/engine-rival";
+import { STRENGTH_PROFILES } from "../lib/engine/rival-policy";
 import { EngineError } from "../lib/engine/usi-adapter";
 import type { UsiTransport } from "../lib/engine/usi-adapter";
 import { probeDevEngine } from "../lib/engine/browser-engine";
@@ -36,18 +37,20 @@ class ScriptedTransport implements UsiTransport {
 
 const opening = () => ["info depth 6 multipv 1 score cp 40 pv 7g7f", "info depth 6 multipv 2 score cp 30 pv 2g2f", "info depth 6 multipv 3 score cp 10 pv 5g5f", "bestmove 7g7f"];
 
-test("engine rival: one turn = start engine, search with the strength's time, apply the policy", async () => {
+test("engine rival: one turn = start engine, search with the strength's node budget, apply the policy", async () => {
   let transport!: ScriptedTransport;
   const rival = new EngineRival(() => (transport = new ScriptedTransport(opening)), { Threads: 1 });
   const turn = await rival.think(initialGame(), { strength: "practice", style: "balanced" });
   assert.equal(turn.decision.kind, "move");
-  assert.ok(transport.sent.includes("go movetime 300"));
-  assert.ok(transport.sent.includes("setoption name USI_MultiPV value 5"));
+  const practice = STRENGTH_PROFILES.practice, strong = STRENGTH_PROFILES.strong;
+  // Node budgets make the search repeatable on every device; the time is only a safety cap.
+  assert.ok(transport.sent.includes(`go nodes ${practice.nodes} movetime ${practice.movetimeMs}`));
+  assert.ok(transport.sent.includes(`setoption name USI_MultiPV value ${practice.multiPv}`));
   assert.ok(turn.startupMs !== undefined);
   // The second turn reuses the running engine (no new startup).
   const next = await rival.think(initialGame(), { strength: "strong", style: "balanced" });
   assert.equal(next.startupMs, undefined);
-  assert.ok(transport.sent.includes("go movetime 1000"));
+  assert.ok(transport.sent.includes(`go nodes ${strong.nodes} movetime ${strong.movetimeMs}`));
 });
 
 test("engine rival: a crash or cancellation discards the engine and the next turn starts a fresh one", async () => {

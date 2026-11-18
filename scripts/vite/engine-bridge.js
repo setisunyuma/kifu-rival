@@ -12,7 +12,13 @@ try {
   Stockfish({ locateFile: file => new URL(`/__kiyu-engine/${file}`, self.location.href).href,
     mainScriptUrlOrBlob: new URL("/__kiyu-engine/stockfish.js", self.location.href).href }).then(instance => {
     engine = instance;
-    engine.addMessageListener(line => self.postMessage({ line: String(line) }));
+    engine.addMessageListener(line => {
+      const text = String(line);
+      // Emscripten reports a failed engine thread as an ordinary output line; without this the app
+      // would wait for the startup timeout (twice) before telling the player.
+      if (/^pthread sent an error/.test(text)) self.postMessage({ error: `エンジンのスレッドを起動できません（${text}）。` });
+      else self.postMessage({ line: text });
+    });
     for (const command of queued) engine.postMessage(command);
     queued.length = 0;
   }).catch(error => self.postMessage({ error: String(error) }));

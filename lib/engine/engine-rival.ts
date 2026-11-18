@@ -43,7 +43,7 @@ export class EngineRival {
       startupMs = await this.ensure();
       if (signal?.aborted) throw new EngineError("cancelled", "中断しました。");
       const profile = STRENGTH_PROFILES[policy.strength];
-      const analysis = await this.adapter!.analyze(game, { movetimeMs: profile.movetimeMs, multiPv: profile.multiPv, signal });
+      const analysis = await this.adapter!.analyze(game, { nodes: profile.nodes, movetimeMs: profile.movetimeMs, multiPv: profile.multiPv, signal });
       return { decision: decideRivalAction(game, analysis, policy), analysis, startupMs, positionKey };
     } catch (error) {
       if (!(error instanceof EngineError) || FATAL.includes(error.code)) this.reset();

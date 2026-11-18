@@ -65,13 +65,23 @@ Node 24.22.1で実測。Node側では`wasmBinary`に読み込んだバイト列�
 
 配布物をユーザーへ提供する前に、[`ENGINE_INTEGRATION_PLAN.md`](../../docs/ENGINE_INTEGRATION_PLAN.md)の採用・権利・実機確認の残条件を満たす。`npm pack`したエンジンや展開先はコミットしない。
 
-## 設定どうしの対局（2026-11-16、KIF-022）
+## 強さのベンチマーク（2026-11-18、KIF-022）
 
-アプリと同じ`EngineRival`と着手選択層を使い、強さの設定どうしを対局させる。エンジンはリポジトリ外。
+`run-strength-bench.mjs`は、アプリと同じ`EngineRival`と着手選択層を使い、2人の対局者を**16種の序盤×先後入替え（既定32局）**で対局させ、全着手を深い参照探索で採点する。旧`run-policy-ladder.mjs`（3序盤・6局、思考時間で制御）を置き換えた。エンジンはリポジトリ外。
 
 ```sh
-KIFU_FAIRY_WASM_DIR="$engine_lab/package" \
-  node tests/engine-bench/run-policy-ladder.mjs --pair strong:practice --games 6 [--style balanced] [--purpose close-game]
+KIFU_FAIRY_WASM_DIR=/path/outside/repo/package \
+  node tests/engine-bench/run-strength-bench.mjs --pair tier:balanced:tier:practice \
+  [--purpose win|close-game|finish-practice] [--style balanced|active|solid] \
+  [--audit-nodes 200000] [--jobs 4] [--openings 16] [--max-plies 256] [--source <lib/を含む別ディレクトリ>]
 ```
 
-結果は`.sites-runtime/engine-ladder/ladder-<a>-<b>.json`（Git管理外）。1局あたり数分かかる。要約は`docs/INTEGRATION_STATUS.md` §4。
+- 対局者: `tier:<強さ>[/<棋風>[/<目的>]]`（アプリの設定）、`nodes:<N>`（N局面読んだエンジンの最善手。基準点）、`builtin:<1-4>`（内蔵AI。乱数は手ごとに固定の種）。
+- **再現性**: 探索は局面数（nodes）で打ち切り、1スレッド・手ごとにハッシュを消去するので、同じ条件なら機械や負荷に関係なく同じ棋譜になる。時間の安全上限に達した探索は`capHits`に数える（0なら完全に再現）。
+- **採点**: `--audit-nodes`を付けると、各局面を参照探索（MultiPV1）で評価し、着手の損失＝着手前の評価＋着手後の相手側評価（cp、詰みは±(10000−手数)）を計算する。既に大差（±2000以上）の局面は除き、平均損失（1手1000で頭打ち）、150以上（疑問手）、300以上（悪手）、1000以上（大悪手）の件数を出す。棋風の確認用に取る手・王手・成り・打つ手の割合も出す。
+- 成績は引分け・手数打切りを0.5勝とし、95%区間はWilsonの近似。Elo差は勝率からの換算で、段級位ではない。
+- 結果は`.sites-runtime/engine-bench/strength/<label>.json`（Git管理外。全棋譜・着手ごとの損失を含む）。要約は`docs/INTEGRATION_STATUS.md` §4。
+
+## 設定どうしの対局（2026-11-16、KIF-022。旧方式・置換済み）
+
+旧`run-policy-ladder.mjs`は、3序盤×先後の6局を思考時間で制御して対局させていた。思考時間は機械と負荷で変わり再現できず、局数も少なかったため、2026-11-18に上記`run-strength-bench.mjs`へ置き換えて削除した。当時の結果（本気が他の2設定に各6勝0敗、互角と練習は3勝3敗）は`docs/INTEGRATION_STATUS.md` §4の履歴として残す。

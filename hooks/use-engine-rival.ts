@@ -6,6 +6,7 @@ import type { EngineAvailability } from "../lib/engine/browser-engine";
 import { EngineRival } from "../lib/engine/engine-rival";
 import type { EngineTurn } from "../lib/engine/engine-rival";
 import { EngineError, enginePositionKey } from "../lib/engine/usi-adapter";
+import { STRENGTH_PROFILES } from "../lib/engine/rival-policy";
 import type { RivalPolicy, RivalPurpose, RivalStrength, RivalStyle } from "../lib/engine/rival-policy";
 
 export type Opponent = "builtin" | "engine";
@@ -114,7 +115,15 @@ export function useEngineTurn({ active, paused, game, policy, onTurn }: {
         throw error;
       }
     };
-    void attempt(1).then(turn => {
+    const started = performance.now();
+    // A shallow search can answer in a few milliseconds; show the move after a short, human pace.
+    const paced = (turn: EngineTurn) => new Promise<EngineTurn>(resolve => {
+      const wait = STRENGTH_PROFILES[policy.strength].paceMs - (performance.now() - started);
+      if (wait <= 0) { resolve(turn); return; }
+      const timer = setTimeout(() => resolve(turn), wait);
+      controller.signal.addEventListener("abort", () => { clearTimeout(timer); resolve(turn); }, { once: true });
+    });
+    void attempt(1).then(paced).then(turn => {
       if (controller.signal.aborted || turn.positionKey !== enginePositionKey(snapshot)) return;
       setLastTurn(turn); setState({ status: "idle" });
       callback.current(turn, snapshot);

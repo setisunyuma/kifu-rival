@@ -241,3 +241,17 @@
 - 予約: 2:30 JSTの作業再開の予約（1回限り、`trig_01JwGehPSrTe7RUBowDUbbJB`）は実行済みで自動的に無効化された。他に予約・監視はこのセッションから設定していない（PR #23のGitHub通知購読はこのセッション限り）。
 - リポジトリ外にだけあるもの: Fairy-Stockfish WASM（`npm pack fairy-stockfish-nnue.wasm@1.1.12`で再取得、手順は`docs/INTEGRATION_STATUS.md` §1）、実ブラウザの対局・ライフサイクル確認に使った使い捨てのPlaywrightスクリプト（コミットしていない。再現は同§1の起動手順で開発サーバーを開き、対局相手を「強いエンジン（開発版）」にして操作する）。CIの受入試験は`tests/browser/backup_learning.py`（6経路）。
 - Next（新アカウントの最初の作業）: `git status` → `npm ci` → `npm run ledger:check && npm run test:unit` → PR #23の状態とレビューを確認。続いて KIF-022「互角を目指す」と「練習」の差を出す調整（ladder 3勝3敗の解消。本人の対局の体感が必要）、または本人確認項目（Siteの現行版、実データの初回退避、iPhone、COOP/COEP、エンジン配布A/B/C、L3レビュー）の回答に応じた作業。
+
+## 2026-11-18 — KIF-022 強さの制御を読む局面数へ変更し、再現できるベンチマークを整備
+
+- Actor: Claude（新アカウント、Macローカルの Claude Code。Node 24.22.1 / npm 11.19.1）
+- Base commit: `0ebba4e`（PR #23、draftのまま）
+- User input: 本人がMacのSafariで変更前の「本気」と2局指し、42手・40手で負け。探索・合法手・終局・棋譜保存の動作確認で、棋力の測定ではない。
+- Environment: `npm ci`はnpm 11の`allowScripts`により7パッケージのインストールスクリプトを実行しなかったが、unit・lint・型検査・ビルド・開発サーバー（workerd起動を含む）すべて正常。エンジンはリポジトリ外`/Users/yuma/Developer/kifu-engine-lab/package`（`fairy-stockfish-nnue.wasm@1.1.12`、npmのSHA-1と記録済みWASMのSHA-256一致）。開発サーバーは`KIFU_ENGINE_DIR`付きで`127.0.0.1:5173`に起動したまま、停止・再起動していない（本作業中の変更はHMRで反映。`bridge.js`の修正だけは次回の起動から有効）。Safariの記録には触れていない。
+- Diagnosis: 旧方式は劣勢・互角で互角と練習が同じ手を指し、差は優勢時の緩め方と探索時間だけ。時間で強さを決めるため端末と負荷で変わり再現できない。優勢時に評価が目標に近い候補を選ぶと、深い探索で見た300以上の悪手が6.0%→10.9%に増えた。本気は許容幅0で棋風が効かなかった。
+- Changes: `lib/engine/usi-adapter.ts`に局面数の上限（`go nodes N movetime 上限`）。`lib/engine/rival-policy.ts`を強さ＝局面数（本気30万・互角4万・練習4千、候補2本）、棋風・目的は許容幅20/30/30内だけ、接戦時は評価を下げず駒を取られない手を好む方式へ（ADR-012、提案）。`hooks/use-engine-rival.ts`に表示までの最短時間（0.6/0.8秒）。`app/rival-app.tsx`に読みの上限局面数の表示。`scripts/vite/engine-bridge.js`でエンジンのスレッド起動失敗を即座にエラーとして返す。`tests/engine-bench/run-strength-bench.mjs`（16序盤×先後32局、参照探索で全着手を採点、並列実行、旧版のlibとの比較用`--source`）を追加し、旧`run-policy-ladder.mjs`を削除。要約`tests/engine-bench/strength-bench-results.json`。単体テスト2件追加・2件更新。保存形式`kifu-rival.v1`・`kifu-rival.engine-dev.v1`・バックアップ形式は不変。
+- Measurement（Node WASM、違法手・失敗0）: 本気32-0互角、互角32-0練習（接戦で鍛えるでも32-0、損失は増えず）、練習32-0内蔵Lv.4、練習18-12-2エンジン単体2,000局面（悪手は同等以下）、互角の攻め好き15-17手堅い、再実行8局すべて棋譜一致。途中で試した候補4本の設定は、同じ局面数のエンジン単体に4-27-1で大悪手が約4倍だったため却下。
+- Validation: `test:unit` 118/118、lint、`tsc --noEmit`、build、`public:check`（187追跡ファイル）、`ledger:check`、`git diff --check` PASS。本番ビルドにはエンジンも配信経路もなく、経路名（`/__kiyu-engine/`、本番では404）だけが入っている（従来どおり）。Claudeデスクトップアプリ内蔵ブラウザはエンジンのスレッドを起動できず、画面での対局確認はできなかった（設定表示とHMR反映は確認）。新設定でのSafari・iPhoneでの対局は未確認。
+- Remaining: 隣の設定の差が大きく間の強さがない（本人の成績から合わせる自動調整を設計）。棋風で手が変わるのは同じ局面の2〜4%（KIF-023）。「接戦で鍛える」は接戦を作る効果がほぼない。人に対する強さ、iPhone Safariでの1手の時間は未計測。DECISIONS.mdにADR-010/011が無い（PR #9のブランチにのみ存在）。
+- Next: 本人が新しい互角・練習と指して体感を記録 → 自動調整の設計（KIF-022）。開発サーバーを再起動したら、スレッドを使えない環境で失敗表示がすぐ出ることを画面で確認（KIF-021）。
+- Boundary: PR #23はdraftのまま。マージ、Site配備、第三者エンジンのコミット・配布・正式採用、実データの削除・復元は行っていない。

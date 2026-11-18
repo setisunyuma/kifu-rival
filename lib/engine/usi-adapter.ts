@@ -16,7 +16,11 @@ export type EngineCandidate = {
 export type EngineAnalysis = {
   sfen: string; positionKey: string; bestmove: string; candidates: EngineCandidate[];
   elapsedMs: number; requestedMs: number; completed: true;
+  /** Node budget, when the search was limited by nodes (the time is then only a safety cap). */
+  requestedNodes?: number;
 };
+/** Largest node budget accepted per search (well above any rival setting). */
+export const MAX_SEARCH_NODES = 20_000_000;
 
 /** Includes repetition history and the declaration rule, which SFEN alone cannot express. */
 export function enginePositionKey(game: Game): string {
@@ -148,12 +152,20 @@ export class UsiAdapter {
     } finally { this.busy = false; }
   }
 
-  async analyze(game: Game, { movetimeMs = 100, multiPv = 3, signal }: { movetimeMs?: number; multiPv?: number; signal?: AbortSignal } = {}): Promise<EngineAnalysis> {
+  /**
+   * `nodes` makes a single-threaded search reproducible on every device (the hash is cleared by
+   * `usinewgame`); `movetimeMs` then only caps the time on a slow device. Without `nodes` the
+   * search is limited by time alone, which depends on the device and its load.
+   */
+  async analyze(game: Game, { movetimeMs = 100, multiPv = 3, nodes, signal }: { movetimeMs?: number; multiPv?: number; nodes?: number; signal?: AbortSignal } = {}): Promise<EngineAnalysis> {
     this.assertOpen();
     if (!this.ready) throw new EngineError("not-ready", "先にエンジンを起動してください。");
     if (this.busy) throw new EngineError("busy", "前の解析が終わるまで次の解析を開始できません。");
     if (!Number.isInteger(movetimeMs) || movetimeMs < 1 || movetimeMs > 10000 || !Number.isInteger(multiPv) || multiPv < 1 || multiPv > 8) {
       throw new EngineError("input", "思考時間または候補手数が範囲外です。");
+    }
+    if (nodes !== undefined && (!Number.isInteger(nodes) || nodes < 1 || nodes > MAX_SEARCH_NODES)) {
+      throw new EngineError("input", "探索局面数が範囲外です。");
     }
     if (signal?.aborted) throw new EngineError("cancelled", "解析開始前に中断されました。");
     if (game.result !== "playing" || validatePosition(game).length) throw new EngineError("input", "解析できる対局中の局面ではありません。");
@@ -192,7 +204,8 @@ export class UsiAdapter {
             rows.size === expected && new Set([...rows.values()].map(c => c.move)).size === expected);
           const rows = complete.sort((a, b) => b[0] - a[0])[0]?.[1];
           const candidates = rows ? [...rows.values()].sort((a, b) => a.rank - b.rank).filter(c => validPv(snapshot, c.pv)) : [];
-          finish(undefined, { sfen, positionKey, bestmove, candidates, completed: true, requestedMs: movetimeMs, elapsedMs: performance.now() - started });
+          finish(undefined, { sfen, positionKey, bestmove, candidates, completed: true, requestedMs: movetimeMs,
+            ...(nodes !== undefined ? { requestedNodes: nodes } : {}), elapsedMs: performance.now() - started });
         };
         try {
           const option = this.options.has("USI_MultiPV") ? "USI_MultiPV" : this.options.has("MultiPV") ? "MultiPV" : undefined;
@@ -200,7 +213,7 @@ export class UsiAdapter {
           if (option) this.transport.send(`setoption name ${option} value ${multiPv}`);
           this.transport.send("usinewgame");
           this.transport.send(positionCommand(snapshot));
-          this.transport.send(`go movetime ${movetimeMs}`);
+          this.transport.send(nodes !== undefined ? `go nodes ${nodes} movetime ${movetimeMs}` : `go movetime ${movetimeMs}`);
         } catch (error) { this.fail(error instanceof EngineError ? error : new EngineError("transport", String(error))); }
       });
     } finally { this.busy = false; }

@@ -226,3 +226,18 @@
 - Changes: (1) KIF-021/022 開発サーバー専用のエンジン配信、ブラウザ接続、1手の手続き、対局画面（対局相手・強さ・棋風・目的、考慮時間、中断・再開、障害時の再起動と明示的な切替、直前の手の理由）。着手選択層から乱数を除き、探索時間＋評価差の許容幅＋優勢時の目標差で強さを作る方式へ。(2) KIF-032 P3 棋譜再生→見逃し局面で再挑戦→基本問題→未見の応用問題→回答記録、の一続きの画面。(3) 盤の描画を`components/shogi-board.tsx`へ分離。(4) `docs/INTEGRATION_STATUS.md`（統合状況・release plan判定・本人確認項目）、`docs/ENGINE_INTEGRATION_PLAN.md`第4回（構成と採用・配布の判断材料）、設定どうしの対局ハーネス`tests/engine-bench/run-policy-ladder.mjs`。保存形式`kifu-rival.v1`とバックアップ形式は不変。開発版の対局相手設定のみ別キー`kifu-rival.engine-dev.v1`。
 - Validation: `test:unit` 116/116、lint、TypeScript、build、public・ledger・`git diff --check` PASS。ブラウザ受入試験（375px Chromium）6/6 PASS（追加の`game_to_lesson`を含む）。開発サーバーの実ブラウザ（390px）で3つの強さとも終局まで対局（違法手0）、中断・再開・再読込み・投了・エンジン障害からの自動再起動を確認。本番ビルドではエンジン経路が404でCOOP/COEPなし。PR #9の`release.mjs plan`で`main`との差分は`data`判定。設定どうしの対局（各6局、違法手0）: 本気は互角・練習に各6勝0敗、互角と練習は3勝3敗で差を示せず。
 - Boundary: Siteへの同期・配備、手動レビュー対象PRのマージ、第三者エンジンのコミット・配布・正式採用、実データの取得は行っていない。iPhone実機は未確認。L3教材はdraftのまま。
+
+## 2026-11-18 — 引継ぎ（Claudeアカウント移行）
+
+- Actor: Claude（Claude Codeクラウド）。ユーザーが新しいClaudeアカウントへ移行するための引継ぎ。旧セッションは削除しない。
+- Working branch / PR: `claude/kiyu-shogi-app-handoff-0v2q7j` → **PR #23**（draft、`[manual]`）。最終コミット`a1608a8`、CI `verify` 成功。未コミット・未pushの変更なし。
+- Open PRs（すべて手動レビュー対象・未マージ）: #9 リリース手順（`167ef25`）、#15 教材計画・配備案（`8004e3c`）、#21 エンジン接続試作（`0a6c3d2`）、#22 バックアップ・学習教材（`bd6b2d7`）、#23 本作業（#21・#22を含む）。いずれもCI成功を確認済み。推奨するマージ順と競合の扱いは`docs/INTEGRATION_STATUS.md` §2。
+- このセッションで決めたこと（Claudeの設計判断。ユーザー承認済みのADRではない）:
+  1. 強いエンジンは開発サーバー専用（`KIFU_ENGINE_DIR`はリポジトリ外のみ、本番ビルドに配信経路なし）。Siteへの配布はQ-003/KIF-024の判断まで行わない。
+  2. 着手選択層は乱数を使わない。強さ＝探索時間＋評価差の許容幅、優勢時は目標差へ緩める、棋風は上限つき加点、目的で投了を変える（`lib/engine/rival-policy.ts`）。
+  3. 対局相手の設定は対局ごとに固定し、`kifu-rival.v1`とバックアップ形式には入れず別キー`kifu-rival.engine-dev.v1`に保存。
+  4. 実戦→学習の進捗は既存の`LessonAttempt`だけで判定し、保存形式を増やさない。
+  5. PR #23はdraftで作成した（Guarded auto-mergeの対象外。手動レビュー対象でもある）。レビューに出すときは本人が「Ready for review」にする。
+- 予約: 2:30 JSTの作業再開の予約（1回限り、`trig_01JwGehPSrTe7RUBowDUbbJB`）は実行済みで自動的に無効化された。他に予約・監視はこのセッションから設定していない（PR #23のGitHub通知購読はこのセッション限り）。
+- リポジトリ外にだけあるもの: Fairy-Stockfish WASM（`npm pack fairy-stockfish-nnue.wasm@1.1.12`で再取得、手順は`docs/INTEGRATION_STATUS.md` §1）、実ブラウザの対局・ライフサイクル確認に使った使い捨てのPlaywrightスクリプト（コミットしていない。再現は同§1の起動手順で開発サーバーを開き、対局相手を「強いエンジン（開発版）」にして操作する）。CIの受入試験は`tests/browser/backup_learning.py`（6経路）。
+- Next（新アカウントの最初の作業）: `git status` → `npm ci` → `npm run ledger:check && npm run test:unit` → PR #23の状態とレビューを確認。続いて KIF-022「互角を目指す」と「練習」の差を出す調整（ladder 3勝3敗の解消。本人の対局の体感が必要）、または本人確認項目（Siteの現行版、実データの初回退避、iPhone、COOP/COEP、エンジン配布A/B/C、L3レビュー）の回答に応じた作業。

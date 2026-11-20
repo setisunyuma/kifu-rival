@@ -9,6 +9,8 @@
 | フロント | `app/rival-app.tsx`, `app/globals.css` | 将棋盤・駒・持ち駒・成り・4画面・モバイルUI | 多くの責務が単一コンポーネントに集中。iPhone実機の継続回帰が必要 |
 | ルール | `lib/shogi.ts` | 盤、持ち駒、基本移動、成り、二歩・自玉王手回避、打ち歩詰め、千日手（4回目で引分け、連続王手の千日手は王手側の負け）、500手で持将棋（引分け）、入玉宣言の判定関数（連盟規則・27点法）、不正局面の検出`validatePosition`、SFEN入出力。perft 1〜3手と最大合法手数局面（593手）で合法手生成を検証 | 入玉宣言は対局画面とAIに接続済み（教材・練習での画面接続は入玉教材の作成時）。合意による24点法は未実装。旧形式の保存局面は読込時点から千日手を数える |
 | 対戦AI | `lib/shogi.ts` の `chooseRivalMove` | 1〜4の弱い局面評価と浅い応手読み・乱数 | 定跡・強力な探索・人間的指し手分布・戦型選択・実力適応なし。Lv4にも厳しいフィードバック |
+| 強いエンジン（開発版） | `lib/engine/`（`usi-adapter`・`engine-rival`・`rival-policy`・`adaptive-strength`・`browser-engine`）、`hooks/use-engine-rival.ts`・`use-adaptive-strength.ts`、`scripts/vite/engine-dev-plugin.mjs` | リポジトリ外のFairy-Stockfish WASMを開発サーバーだけが配信し、Workerで実行。候補と読み筋を合法手で検証し、乱数なしの着手選択（強さ＝読む局面数・棋風・目的）で指す。「互角を目指す」は本人の成績から読む局面数を16段階で自動調整（別キー`kifu-rival.rival-adapt.v1`）。対局相手と強さは対局ごとに固定、中断・再開・障害時の再起動 | Siteには含まれない（配布は未承認）。iPhone未計測。段級位との対応なし |
+| 実戦→学習 | `lib/study-path.ts`、`components/game-study.tsx` | 対局の再生、見逃した詰み局面での再挑戦、対応する基本問題→未見の応用問題、回答記録の保存 | 検出は1手詰・3手詰のみ |
 | 教材 | `lib/lessons.ts` | 固定6題、解説・ヒント・模範手、一部盤上練習 | 序中終盤の体系的講義・習熟度・反復・有段者教材なし |
 | 会話 | `lib/rival-chat.ts` | 棋譜と勝敗の一部に基づく定型応答 | LLMによる自由対話、手の解析、長期記憶なし |
 | 状態 | `app/rival-app.tsx` | `localStorage` の `kifu-rival.v1` に現在局面・レベル・対局・教材・会話 | 形式バージョン管理・競合解決・インポート/エクスポート未完成 |

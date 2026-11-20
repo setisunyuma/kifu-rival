@@ -611,10 +611,12 @@ test("game review: playing the mate, the opponent's turns and corrupt records ar
 
 test("recommendation: missed mates map to C1/C2 and fall back to the nearest taught prerequisite", () => {
   assert.deepEqual(skillsForMissedMates([{ plies: 1 }, { plies: 3 }, { plies: 1 }]).sort(), ["C1", "C2"]);
-  assert.deepEqual(lessonsForSkills(["C1"]), ["rook-mate"]);
-  assert.deepEqual(lessonsForSkills(["C2"]), ["rook-mate"], "no 3-move lesson yet -> C1 lesson");
+  assert.deepEqual(lessonsForSkills(["C1"]), ["rook-mate", "rook-mate-transfer-center", "rook-mate-transfer-edge"]);
+  const threeMoveLessons = ["double-rook-mate-3", "double-gold-mate-3", "double-rook-mate-3-transfer", "double-gold-mate-3-transfer"];
+  assert.deepEqual(lessonsForSkills(["C2"]), threeMoveLessons, "C2 now has its own lessons");
+  assert.deepEqual(lessonsForSkills(["C3"]), threeMoveLessons, "no 5-move lesson yet -> C2 lessons");
   const plan = dailyPlan([], new Date(day(0)), LESSONS, ["C1"]);
-  assert.ok(plan.some(p => p.lessonId === "rook-mate" && p.reason === "game"), JSON.stringify(plan));
+  assert.ok(plan.some(p => p.lessonId === "first-pawn" && p.reason === "game"), "game recommendations respect an unpractised foundation");
   assert.equal(plan.length, 3);
 });
 

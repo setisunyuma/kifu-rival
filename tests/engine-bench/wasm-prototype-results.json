@@ -1,0 +1,555 @@
+{
+  "measuredAt": "2026-11-15T15:26:26.727Z",
+  "node": "v24.22.1",
+  "engine": {
+    "package": "fairy-stockfish-nnue.wasm",
+    "version": "1.1.12",
+    "license": "GPL-3.0",
+    "wasmBytes": 1636293,
+    "wasmSha256": "7cea742b8ca1a324fbc500f89112f168134cf68eb49475df23be6c42336255c6",
+    "reportedName": "Fairy-Stockfish [commit: b2e693ef, upstream: , emscripten: 2.0.26] LB",
+    "sourceCommit": "b2e693ef1e111233ce3fb40685921708b3276ed6",
+    "registry": "https://registry.npmjs.org/fairy-stockfish-nnue.wasm/1.1.12",
+    "source": "https://github.com/fairy-stockfish/fairy-stockfish.wasm/tree/b2e693ef1e111233ce3fb40685921708b3276ed6"
+  },
+  "settings": {
+    "Threads": 1,
+    "USI_Hash": 16,
+    "Use_NNUE": false,
+    "USI_Variant": "shogi",
+    "movetimeMs": 100,
+    "multiPv": 3,
+    "games": 6,
+    "maxPlies": 240,
+    "seeds": "20261116 + gameIndex*1000 + ply"
+  },
+  "positions": [
+    {
+      "opening": [],
+      "time": 100,
+      "elapsedMs": 185.58931300000017,
+      "bestmove": "7g7f",
+      "candidates": [
+        {
+          "move": "7g7f",
+          "score": {
+            "kind": "cp",
+            "value": 92
+          },
+          "depth": 8,
+          "nodes": 7200,
+          "engineMs": 102
+        },
+        {
+          "move": "2h6h",
+          "score": {
+            "kind": "cp",
+            "value": 30
+          },
+          "depth": 8,
+          "nodes": 7200,
+          "engineMs": 102
+        },
+        {
+          "move": "6i7h",
+          "score": {
+            "kind": "cp",
+            "value": 15
+          },
+          "depth": 8,
+          "nodes": 7200,
+          "engineMs": 102
+        }
+      ]
+    },
+    {
+      "opening": [],
+      "time": 500,
+      "elapsedMs": 533.594801,
+      "bestmove": "7g7f",
+      "candidates": [
+        {
+          "move": "7g7f",
+          "score": {
+            "kind": "cp",
+            "value": 38
+          },
+          "depth": 11,
+          "nodes": 62224,
+          "engineMs": 320
+        },
+        {
+          "move": "6i6h",
+          "score": {
+            "kind": "cp",
+            "value": 30
+          },
+          "depth": 11,
+          "nodes": 94348,
+          "engineMs": 504
+        },
+        {
+          "move": "2h6h",
+          "score": {
+            "kind": "cp",
+            "value": 30
+          },
+          "depth": 11,
+          "nodes": 94348,
+          "engineMs": 504
+        }
+      ]
+    },
+    {
+      "opening": [
+        "7g7f",
+        "3c3d"
+      ],
+      "time": 100,
+      "elapsedMs": 134.61125400000037,
+      "bestmove": "6i6h",
+      "candidates": [
+        {
+          "move": "6i6h",
+          "score": {
+            "kind": "cp",
+            "value": 53
+          },
+          "depth": 9,
+          "nodes": 18680,
+          "engineMs": 102
+        },
+        {
+          "move": "2h4h",
+          "score": {
+            "kind": "cp",
+            "value": 30
+          },
+          "depth": 9,
+          "nodes": 18680,
+          "engineMs": 102
+        },
+        {
+          "move": "8h2b",
+          "score": {
+            "kind": "cp",
+            "value": -7
+          },
+          "depth": 9,
+          "nodes": 18680,
+          "engineMs": 102
+        }
+      ]
+    },
+    {
+      "opening": [
+        "7g7f",
+        "3c3d"
+      ],
+      "time": 500,
+      "elapsedMs": 540.0853240000001,
+      "bestmove": "5g5f",
+      "candidates": [
+        {
+          "move": "5g5f",
+          "score": {
+            "kind": "cp",
+            "value": 23
+          },
+          "depth": 10,
+          "nodes": 67624,
+          "engineMs": 342
+        },
+        {
+          "move": "8h2b",
+          "score": {
+            "kind": "cp",
+            "value": 23
+          },
+          "depth": 10,
+          "nodes": 101185,
+          "engineMs": 503
+        },
+        {
+          "move": "2h7h",
+          "score": {
+            "kind": "cp",
+            "value": 15
+          },
+          "depth": 10,
+          "nodes": 101185,
+          "engineMs": 503
+        }
+      ]
+    },
+    {
+      "opening": [
+        "2g2f",
+        "8c8d"
+      ],
+      "time": 100,
+      "elapsedMs": 120.1174960000003,
+      "bestmove": "2f2e",
+      "candidates": [
+        {
+          "move": "2f2e",
+          "score": {
+            "kind": "cp",
+            "value": 46
+          },
+          "depth": 9,
+          "nodes": 20755,
+          "engineMs": 81
+        },
+        {
+          "move": "7g7f",
+          "score": {
+            "kind": "cp",
+            "value": 38
+          },
+          "depth": 9,
+          "nodes": 26684,
+          "engineMs": 104
+        },
+        {
+          "move": "7i6h",
+          "score": {
+            "kind": "cp",
+            "value": -23
+          },
+          "depth": 9,
+          "nodes": 26684,
+          "engineMs": 104
+        }
+      ]
+    },
+    {
+      "opening": [
+        "2g2f",
+        "8c8d"
+      ],
+      "time": 500,
+      "elapsedMs": 531.879641,
+      "bestmove": "2f2e",
+      "candidates": [
+        {
+          "move": "2f2e",
+          "score": {
+            "kind": "cp",
+            "value": 61
+          },
+          "depth": 11,
+          "nodes": 78318,
+          "engineMs": 377
+        },
+        {
+          "move": "7g7f",
+          "score": {
+            "kind": "cp",
+            "value": 46
+          },
+          "depth": 11,
+          "nodes": 104184,
+          "engineMs": 504
+        },
+        {
+          "move": "3i4h",
+          "score": {
+            "kind": "cp",
+            "value": -30
+          },
+          "depth": 11,
+          "nodes": 104184,
+          "engineMs": 504
+        }
+      ]
+    }
+  ],
+  "policyExamples": [
+    {
+      "opening": [],
+      "style": "balanced",
+      "move": "6i6h",
+      "lossCp": 8,
+      "reason": "評価差180以内で棋風を考慮して選択（仮設定）"
+    },
+    {
+      "opening": [],
+      "style": "active",
+      "move": "6i6h",
+      "lossCp": 8,
+      "reason": "評価差180以内で棋風を考慮して選択（仮設定）"
+    },
+    {
+      "opening": [],
+      "style": "solid",
+      "move": "6i6h",
+      "lossCp": 8,
+      "reason": "評価差180以内で棋風を考慮して選択（仮設定）"
+    },
+    {
+      "opening": [
+        "7g7f",
+        "3c3d"
+      ],
+      "style": "balanced",
+      "move": "2h7h",
+      "lossCp": 8,
+      "reason": "評価差180以内で棋風を考慮して選択（仮設定）"
+    },
+    {
+      "opening": [
+        "7g7f",
+        "3c3d"
+      ],
+      "style": "active",
+      "move": "2h7h",
+      "lossCp": 8,
+      "reason": "評価差180以内で棋風を考慮して選択（仮設定）"
+    },
+    {
+      "opening": [
+        "7g7f",
+        "3c3d"
+      ],
+      "style": "solid",
+      "move": "2h7h",
+      "lossCp": 8,
+      "reason": "評価差180以内で棋風を考慮して選択（仮設定）"
+    },
+    {
+      "opening": [
+        "2g2f",
+        "8c8d"
+      ],
+      "style": "balanced",
+      "move": "7g7f",
+      "lossCp": 15,
+      "reason": "評価差180以内で棋風を考慮して選択（仮設定）"
+    },
+    {
+      "opening": [
+        "2g2f",
+        "8c8d"
+      ],
+      "style": "active",
+      "move": "7g7f",
+      "lossCp": 15,
+      "reason": "評価差180以内で棋風を考慮して選択（仮設定）"
+    },
+    {
+      "opening": [
+        "2g2f",
+        "8c8d"
+      ],
+      "style": "solid",
+      "move": "7g7f",
+      "lossCp": 15,
+      "reason": "評価差180以内で棋風を考慮して選択（仮設定）"
+    }
+  ],
+  "cancellation": {
+    "code": "cancelled",
+    "settledMs": 29.855786999999964,
+    "transportDestroyed": true
+  },
+  "matches": [
+    {
+      "game": 1,
+      "wasmSide": "black",
+      "opening": [],
+      "outcome": "black",
+      "reason": "kiyu-rules",
+      "plies": 49,
+      "wasmLatency": {
+        "count": 25,
+        "mean": 136.18440732000008,
+        "median": 131.48905399999967,
+        "max": 222.57311599999957
+      },
+      "lv4Latency": {
+        "count": 24,
+        "mean": 7.844783958333323,
+        "median": 7.951144999999997,
+        "max": 17.49992999999995
+      },
+      "depth": {
+        "count": 25,
+        "mean": 11.2,
+        "median": 8,
+        "max": 87
+      },
+      "finalSfen": "1ns2k2l/3rg1+S2/1pp1g1+B1p/l2p3p1/9/2P2S2P/+pPNPGSPP1/7R1/L3G1KNL w BN5Pp"
+    },
+    {
+      "game": 2,
+      "wasmSide": "white",
+      "opening": [],
+      "outcome": "white",
+      "reason": "kiyu-rules",
+      "plies": 36,
+      "wasmLatency": {
+        "count": 18,
+        "mean": 133.016965888889,
+        "median": 132.65083799999957,
+        "max": 176.22823400000016
+      },
+      "lv4Latency": {
+        "count": 18,
+        "mean": 10.347657055555828,
+        "median": 13.348492000000988,
+        "max": 17.86540000000059
+      },
+      "depth": {
+        "count": 18,
+        "mean": 8.88888888888889,
+        "median": 9,
+        "max": 11
+      },
+      "finalSfen": "lnsgk3l/1r4g2/pppppp1pp/6p2/2P3P2/8P/P+b1PP2P1/3SGG1+b1/3rK3L b N2s2nl2p"
+    },
+    {
+      "game": 3,
+      "wasmSide": "black",
+      "opening": [
+        "7g7f",
+        "3c3d"
+      ],
+      "outcome": "black",
+      "reason": "kiyu-rules",
+      "plies": 39,
+      "wasmLatency": {
+        "count": 19,
+        "mean": 140.12551289473708,
+        "median": 133.8229339999998,
+        "max": 190.1450189999996
+      },
+      "lv4Latency": {
+        "count": 18,
+        "mean": 10.793105666666532,
+        "median": 11.278263999998671,
+        "max": 31.35119400000076
+      },
+      "depth": {
+        "count": 19,
+        "mean": 10.263157894736842,
+        "median": 8,
+        "max": 47
+      },
+      "finalSfen": "lnsg1k2l/5G3/pppp+R2pp/6p2/3N5/2PG5/PP1P1PPPP/5p3/+bb1K1GSNL w R2SN2Pl"
+    },
+    {
+      "game": 4,
+      "wasmSide": "white",
+      "opening": [
+        "7g7f",
+        "3c3d"
+      ],
+      "outcome": "white",
+      "reason": "kiyu-rules",
+      "plies": 40,
+      "wasmLatency": {
+        "count": 19,
+        "mean": 131.06324242105276,
+        "median": 123.09915399999954,
+        "max": 180.1939229999989
+      },
+      "lv4Latency": {
+        "count": 19,
+        "mean": 6.715519473684061,
+        "median": 5.449050999999599,
+        "max": 21.085743999999977
+      },
+      "depth": {
+        "count": 19,
+        "mean": 16.05263157894737,
+        "median": 9,
+        "max": 144
+      },
+      "finalSfen": "l2gkg2l/2s1r4/ppnpppnpp/6p2/5N3/6P2/PP2PP1PP/1K+r1GS3/Ls6L b 2BSNg3p"
+    },
+    {
+      "game": 5,
+      "wasmSide": "black",
+      "opening": [
+        "2g2f",
+        "8c8d"
+      ],
+      "outcome": "black",
+      "reason": "kiyu-rules",
+      "plies": 19,
+      "wasmLatency": {
+        "count": 9,
+        "mean": 132.22599077777784,
+        "median": 117.78958400000192,
+        "max": 222.23378800000137
+      },
+      "lv4Latency": {
+        "count": 8,
+        "mean": 6.534473375000289,
+        "median": 5.8872700000029,
+        "max": 13.31604100000186
+      },
+      "depth": {
+        "count": 9,
+        "mean": 12.555555555555555,
+        "median": 9,
+        "max": 27
+      },
+      "finalSfen": "ln1g1B1nl/1r1skS1+R1/p1ppgpp1p/1p2p4/9/9/PPPPPPP1P/1B7/LNSGKGSNL w Pp"
+    },
+    {
+      "game": 6,
+      "wasmSide": "white",
+      "opening": [
+        "2g2f",
+        "8c8d"
+      ],
+      "outcome": "white",
+      "reason": "kiyu-rules",
+      "plies": 24,
+      "wasmLatency": {
+        "count": 11,
+        "mean": 121.60961290909141,
+        "median": 124.07448300000033,
+        "max": 128.5316210000019
+      },
+      "lv4Latency": {
+        "count": 11,
+        "mean": 8.156310727273443,
+        "median": 8.93005600000106,
+        "max": 15.327218000002176
+      },
+      "depth": {
+        "count": 11,
+        "mean": 8.727272727272727,
+        "median": 9,
+        "max": 10
+      },
+      "finalSfen": "l1sgkgsnl/9/p1p1pp1pp/3p2p2/9/3b1P1P1/P1P1P1P1P/L3GGSR1/1N+r1K2NL b bsn3p"
+    }
+  ],
+  "score": {
+    "wasmWins": 6,
+    "lv4Wins": 0,
+    "draws": 0,
+    "capped": 0
+  },
+  "illegalMoves": 0,
+  "failures": [],
+  "startup": {
+    "count": 7,
+    "mean": 992.8423865714283,
+    "median": 826.9926239999986,
+    "max": 1394.718316
+  },
+  "runtime": "Node WebAssembly in worker_threads; not a browser or iPhone measurement",
+  "limitations": [
+    "Six synthetic games are not an Elo, dan/kyu, or human-likeness calibration.",
+    "The current Lv4 uses its existing fixed algorithm; it does not consume the same thinking time as the 100 ms engine search.",
+    "Only the strong policy plays these matches. Balanced/practice style examples do not establish their playing strength.",
+    "Elapsed search times include candidate validation on the calling thread.",
+    "The third-party engine and NNUE weights are not included in this repository; NNUE was disabled and no weight file was loaded.",
+    "Browser and iPhone performance are unverified in this experiment."
+  ]
+}

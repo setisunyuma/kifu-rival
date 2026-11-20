@@ -194,3 +194,78 @@
 - Review: 解析が画面処理を占有しうる、未解析を0件と混同しうる、別の正しい詰みを失敗として推薦する、との指摘を反映。
 - Changes: `hooks/game-review.worker.ts`・`hooks/use-game-review.ts`・`hooks/worker-modules.d.ts`を追加、`lib/shogi.ts`に`reviewGame`（完了状態・打ち切り理由・見逃しの種類）、`lib/lessons.ts`の推薦を「詰みが続かなかった」ものに限定、成長の記録画面の表示を更新。保存形式・API・D1は未変更。
 - Validation: `test:unit` 62/62 PASS。Chromium（開発サーバーと本番ビルド）で応答性・打ち切り表示・入力変更時の結果の入れ替わりを確認。iPhone実機は未確認。
+
+## 2026-11-16 — 学習体験・端末バックアップを一括実装
+
+- Actor: ChatGPT
+- Base commit: `1ef202d3d9626175cc3e5c8e120d30ed7a54459e`（PR #20のマージ後）。独立したチェックアウトと作業ブランチで実施。
+- User intent: Claude Codeが再開できるまで、こちらで進められる作業を完了し、重複しない引継ぎを用意する。既存Site作業ツリーは変更しない。
+- Scope: KIF-050の端末データ書き出し・検証付き復元・保存失敗表示、KIF-031/032の3手詰・転用教材と別解採点、読み込み後の解析整合。既存PR #9/#15のmain取り込みも独立して準備する。
+- Changes: オリジナル6題を追加し全12題、別解採点と日本語の全手順、初回・ヒントなし・時間を離した転用による技能確認を実装。KIF-050は版付き書き出し、旧形式検証、復元内容の確認、復元前ファイル・rawの退避、失敗時の現状維持、復元後のクラウド停止と明示的再開まで接続。任意開始局面の記録・解析、同一ID/手数の棋譜差し替え、終局後の手順、保存上限を一緒に整えた。
+- Validation: 単体92/92、lint、型検査、ビルド、公開前・台帳・差分検査PASS。容量レビューで見つかったクラウドの部分反映とAI待機中の古い状態参照を修正。実装head `e67b3efa5152fa82ff4de7164e1a7d2308586527` の [CI 43731822780](https://github.com/setisunyuma/kifu-rival/actions/runs/43731822780)も成功。手元のChromiumは起動制限があるため、GitHubのread-only CIで375×812の実ブラウザ受入試験を実行し、5/5経路がPASS（実操作計11.16秒）。書き出し→復元→再読み込み、不正ファイル/容量不足、空/破損raw、別解とヒント、表示済み旧解析の差替えを確認。合成JSONと画面画像をartifactへ保存し、画像も目視確認した。iPhone/Safari実機の検証とは区別する。
+- Handoff: 新しい実装を重複作成せず、PRの検証結果と未完を確認してから続ける。L3人手レビュー、iPhone実機、実データの初回退避、削除・完全なクラウド同期は未完。第三者エンジン試作は別ブランチで扱う。
+- Boundary: 個人の実データ、Site同期・配備、手動対象PRのマージ、第三者エンジンの正式採用・配布は実施しない。
+
+## 2026-11-16 — KIF-020/021/022 独立USI接続と着手選択の実動試作
+
+- Actor: ChatGPT
+- Base commit: `1ef202d3d9626175cc3e5c8e120d30ed7a54459e`。独立worktreeで実施。
+- Scope: 自作のUSIアダプター・候補手選択層・回帰テストと、リポジトリ外に取得したFairy-Stockfish WASMを使う合成棋譜の計測。第三者のコード・バイナリ・評価関数をコミットしない。
+- Changes: 候補手・全読み筋・入玉宣言・局面履歴を検証する純TypeScriptのUSIアダプター、時間制限・中断時のWorker終了、独立した着手選択層、偽の通信相手を使う回帰テスト、Node WASMとPC用計測ページの自作ハーネスを追加。
+- Measurement: 公式npmのFairy-Stockfish WASM 1.1.12（`b2e693ef`、NNUE無効、1スレッド、Hash16MB、100ms、MultiPV3）と現行Lv.4をNode 24.22.1で合成6局対局し、WASMが6勝、不正手・実行失敗0件。起動中央値827ms、中断約30ms。生の棋譜は一時領域、版・ハッシュ・条件・局別結果・速度の要約は`tests/engine-bench/wasm-prototype-results.json`へ記録。Lv.4の計算時間はより短く、棋力や段級位の校正ではない。
+- Review: 別のエージェントの読取専用レビューで、ブラウザの失敗後に閉じたアダプターを再利用する点と、練習設定がcp候補を残して負の詰み評価へ戻る分岐を発見し、双方を修正。実際の計測ページのコードを偽のDOM/Workerで実行し、通信失敗→新規Workerで成功を確認する回帰を追加した（実ブラウザの性能検証ではない）。
+- Validation: `test:unit` 73/73 PASS（追加11件）、lint・TypeScript・build・ledger・public・`git diff --check` PASS。公開前検査は新規ファイルを含む163追跡ファイルを対象に実施。ESMのWorkerで再確認し、通常開始・任意開始SFENの双方で合法な候補3件を取得した。外部エンジンをCIへ導入する変更はない。
+- Remaining: 新アダプターのPCブラウザとiPhone実測、対局UIへの接続、練習設定・棋風の校正、第三者成果物の正式採用と配布条件。今回のChromiumは起動前にソケット作成を拒否され、環境制限は変更していない。YaneuraOuのクラッシュ原因は未調査のまま。
+- Boundary: 正式採用、サイト配備、実ユーザー棋譜の送信、新規課金は行わない。
+
+## 2026-11-16 — 強いエンジンとの対局・実戦→学習の一続き・初回リリースの統合準備
+
+- Actor: Claude（Claude Codeクラウド、予約した2:30 JSTに再開）
+- Base commit: `1ef202d`（main）に PR #22 `bd6b2d7` と PR #21 `0a6c3d2` を統合（テスト一覧・台帳は双方を保持）。
+- User intent: 細かな修正ではなく完成に直結する機能をまとめて実装する。最優先は「十分に強い棋友と一局指し、棋譜から振り返り、教材で学び、その記録を安全に保存できる開発版」。
+- Changes: (1) KIF-021/022 開発サーバー専用のエンジン配信、ブラウザ接続、1手の手続き、対局画面（対局相手・強さ・棋風・目的、考慮時間、中断・再開、障害時の再起動と明示的な切替、直前の手の理由）。着手選択層から乱数を除き、探索時間＋評価差の許容幅＋優勢時の目標差で強さを作る方式へ。(2) KIF-032 P3 棋譜再生→見逃し局面で再挑戦→基本問題→未見の応用問題→回答記録、の一続きの画面。(3) 盤の描画を`components/shogi-board.tsx`へ分離。(4) `docs/INTEGRATION_STATUS.md`（統合状況・release plan判定・本人確認項目）、`docs/ENGINE_INTEGRATION_PLAN.md`第4回（構成と採用・配布の判断材料）、設定どうしの対局ハーネス`tests/engine-bench/run-policy-ladder.mjs`。保存形式`kifu-rival.v1`とバックアップ形式は不変。開発版の対局相手設定のみ別キー`kifu-rival.engine-dev.v1`。
+- Validation: `test:unit` 116/116、lint、TypeScript、build、public・ledger・`git diff --check` PASS。ブラウザ受入試験（375px Chromium）6/6 PASS（追加の`game_to_lesson`を含む）。開発サーバーの実ブラウザ（390px）で3つの強さとも終局まで対局（違法手0）、中断・再開・再読込み・投了・エンジン障害からの自動再起動を確認。本番ビルドではエンジン経路が404でCOOP/COEPなし。PR #9の`release.mjs plan`で`main`との差分は`data`判定。設定どうしの対局（各6局、違法手0）: 本気は互角・練習に各6勝0敗、互角と練習は3勝3敗で差を示せず。
+- Boundary: Siteへの同期・配備、手動レビュー対象PRのマージ、第三者エンジンのコミット・配布・正式採用、実データの取得は行っていない。iPhone実機は未確認。L3教材はdraftのまま。
+
+## 2026-11-18 — 引継ぎ（Claudeアカウント移行）
+
+- Actor: Claude（Claude Codeクラウド）。ユーザーが新しいClaudeアカウントへ移行するための引継ぎ。旧セッションは削除しない。
+- Working branch / PR: `claude/kiyu-shogi-app-handoff-0v2q7j` → **PR #23**（draft、`[manual]`）。最終コミット`a1608a8`、CI `verify` 成功。未コミット・未pushの変更なし。
+- Open PRs（すべて手動レビュー対象・未マージ）: #9 リリース手順（`167ef25`）、#15 教材計画・配備案（`8004e3c`）、#21 エンジン接続試作（`0a6c3d2`）、#22 バックアップ・学習教材（`bd6b2d7`）、#23 本作業（#21・#22を含む）。いずれもCI成功を確認済み。推奨するマージ順と競合の扱いは`docs/INTEGRATION_STATUS.md` §2。
+- このセッションで決めたこと（Claudeの設計判断。ユーザー承認済みのADRではない）:
+  1. 強いエンジンは開発サーバー専用（`KIFU_ENGINE_DIR`はリポジトリ外のみ、本番ビルドに配信経路なし）。Siteへの配布はQ-003/KIF-024の判断まで行わない。
+  2. 着手選択層は乱数を使わない。強さ＝探索時間＋評価差の許容幅、優勢時は目標差へ緩める、棋風は上限つき加点、目的で投了を変える（`lib/engine/rival-policy.ts`）。
+  3. 対局相手の設定は対局ごとに固定し、`kifu-rival.v1`とバックアップ形式には入れず別キー`kifu-rival.engine-dev.v1`に保存。
+  4. 実戦→学習の進捗は既存の`LessonAttempt`だけで判定し、保存形式を増やさない。
+  5. PR #23はdraftで作成した（Guarded auto-mergeの対象外。手動レビュー対象でもある）。レビューに出すときは本人が「Ready for review」にする。
+- 予約: 2:30 JSTの作業再開の予約（1回限り、`trig_01JwGehPSrTe7RUBowDUbbJB`）は実行済みで自動的に無効化された。他に予約・監視はこのセッションから設定していない（PR #23のGitHub通知購読はこのセッション限り）。
+- リポジトリ外にだけあるもの: Fairy-Stockfish WASM（`npm pack fairy-stockfish-nnue.wasm@1.1.12`で再取得、手順は`docs/INTEGRATION_STATUS.md` §1）、実ブラウザの対局・ライフサイクル確認に使った使い捨てのPlaywrightスクリプト（コミットしていない。再現は同§1の起動手順で開発サーバーを開き、対局相手を「強いエンジン（開発版）」にして操作する）。CIの受入試験は`tests/browser/backup_learning.py`（6経路）。
+- Next（新アカウントの最初の作業）: `git status` → `npm ci` → `npm run ledger:check && npm run test:unit` → PR #23の状態とレビューを確認。続いて KIF-022「互角を目指す」と「練習」の差を出す調整（ladder 3勝3敗の解消。本人の対局の体感が必要）、または本人確認項目（Siteの現行版、実データの初回退避、iPhone、COOP/COEP、エンジン配布A/B/C、L3レビュー）の回答に応じた作業。
+
+## 2026-11-18 — KIF-022 強さの制御を読む局面数へ変更し、再現できるベンチマークを整備
+
+- Actor: Claude（新アカウント、Macローカルの Claude Code。Node 24.22.1 / npm 11.19.1）
+- Base commit: `0ebba4e`（PR #23、draftのまま）
+- User input: 本人がMacのSafariで変更前の「本気」と2局指し、42手・40手で負け。探索・合法手・終局・棋譜保存の動作確認で、棋力の測定ではない。
+- Environment: `npm ci`はnpm 11の`allowScripts`により7パッケージのインストールスクリプトを実行しなかったが、unit・lint・型検査・ビルド・開発サーバー（workerd起動を含む）すべて正常。エンジンはリポジトリ外`/Users/yuma/Developer/kifu-engine-lab/package`（`fairy-stockfish-nnue.wasm@1.1.12`、npmのSHA-1と記録済みWASMのSHA-256一致）。開発サーバーは`KIFU_ENGINE_DIR`付きで`127.0.0.1:5173`に起動したまま、停止・再起動していない（本作業中の変更はHMRで反映。`bridge.js`の修正だけは次回の起動から有効）。Safariの記録には触れていない。
+- Diagnosis: 旧方式は劣勢・互角で互角と練習が同じ手を指し、差は優勢時の緩め方と探索時間だけ。時間で強さを決めるため端末と負荷で変わり再現できない。優勢時に評価が目標に近い候補を選ぶと、深い探索で見た300以上の悪手が6.0%→10.9%に増えた。本気は許容幅0で棋風が効かなかった。
+- Changes: `lib/engine/usi-adapter.ts`に局面数の上限（`go nodes N movetime 上限`）。`lib/engine/rival-policy.ts`を強さ＝局面数（本気30万・互角4万・練習4千、候補2本）、棋風・目的は許容幅20/30/30内だけ、接戦時は評価を下げず駒を取られない手を好む方式へ（ADR-012、提案）。`hooks/use-engine-rival.ts`に表示までの最短時間（0.6/0.8秒）。`app/rival-app.tsx`に読みの上限局面数の表示。`scripts/vite/engine-bridge.js`でエンジンのスレッド起動失敗を即座にエラーとして返す。`tests/engine-bench/run-strength-bench.mjs`（16序盤×先後32局、参照探索で全着手を採点、並列実行、旧版のlibとの比較用`--source`）を追加し、旧`run-policy-ladder.mjs`を削除。要約`tests/engine-bench/strength-bench-results.json`。単体テスト2件追加・2件更新。保存形式`kifu-rival.v1`・`kifu-rival.engine-dev.v1`・バックアップ形式は不変。
+- Measurement（Node WASM、違法手・失敗0）: 本気32-0互角、互角32-0練習（接戦で鍛えるでも32-0、損失は増えず）、練習32-0内蔵Lv.4、練習18-12-2エンジン単体2,000局面（悪手は同等以下）、互角の攻め好き15-17手堅い、再実行8局すべて棋譜一致。途中で試した候補4本の設定は、同じ局面数のエンジン単体に4-27-1で大悪手が約4倍だったため却下。
+- Validation: `test:unit` 118/118、lint、`tsc --noEmit`、build、`public:check`（187追跡ファイル）、`ledger:check`、`git diff --check` PASS。本番ビルドにはエンジンも配信経路もなく、経路名（`/__kiyu-engine/`、本番では404）だけが入っている（従来どおり）。Claudeデスクトップアプリ内蔵ブラウザはエンジンのスレッドを起動できず、画面での対局確認はできなかった（設定表示とHMR反映は確認）。新設定でのSafari・iPhoneでの対局は未確認。
+- Remaining: 隣の設定の差が大きく間の強さがない（本人の成績から合わせる自動調整を設計）。棋風で手が変わるのは同じ局面の2〜4%（KIF-023）。「接戦で鍛える」は接戦を作る効果がほぼない。人に対する強さ、iPhone Safariでの1手の時間は未計測。DECISIONS.mdにADR-010/011が無い（PR #9のブランチにのみ存在）。
+- Next: 本人が新しい互角・練習と指して体感を記録 → 自動調整の設計（KIF-022）。開発サーバーを再起動したら、スレッドを使えない環境で失敗表示がすぐ出ることを画面で確認（KIF-021）。
+- Boundary: PR #23はdraftのまま。マージ、Site配備、第三者エンジンのコミット・配布・正式採用、実データの削除・復元は行っていない。
+
+## 2026-11-20 — KIF-022第2段階: 「互角を目指す」の自動棋力調整
+
+- Actor: Claude（Macローカルの Claude Code。Node 24.22.1 / npm 11.19.1）
+- Base commit: `708e445`（PR #23、draftのまま。GitHub CI `verify` 成功を確認してから着手）
+- User input: Safariでの手動確認は現段階で十分。以後は合成データと自動テストで進める。本気30万・練習4千は維持し、互角を目指すに段階的な実力適応を入れる。
+- Design: `GameRecord`は相手を区別できず、バックアップの検証は未知の項目を拒否するため、記録の形式は変えずに識別した。対局開始時に印（`rated`: ID・段階・局面数・数えるか・リセット世代）を対局設定のキーに付け、印を持って始めて終局した対局だけを数える。自動調整の記録は新しい別キー`kifu-rival.rival-adapt.v1`。
+- Changes: `lib/engine/adaptive-strength.ts`（16段階の局面数、更新・ヒステリシス・上下限、数える対局の判定、検証つき読込み、保存失敗に強い保存）、`hooks/use-adaptive-strength.ts`、`hooks/use-engine-rival.ts`（印の保存・検証、設定変更で印を外す）、`lib/engine/engine-rival.ts`（`searchLimits`: 対局ごとの局面数を範囲内に収め、大きい局面数には本気の時間上限）、`lib/engine/rival-policy.ts`（`RivalPolicy.nodes`）、`app/rival-app.tsx`（開始前の対局に印を付ける、終局時に数える、復元で印を外す、状態・次の段階・固定段階・成績・停止／再開・やり直しの表示）、`tests/adaptive-strength.spec.ts`（13件）、ベンチマークに`adaptive:<段階>`。
+- Tuning: 合成の対局者（200通り×60局）で下限の幅0.5・0.35・0.25を比較。0.5は落ち着いた後の変化が20局で3回、0.25は実力が伸びたときの遅れ0.75段階。0.35（変化2回、遅れ0.4段階）を選んだ。
+- Validation: `test:unit` 131/131、lint、`tsc --noEmit`、build、`public:check`、`ledger:check`、`git diff --check` PASS（件数はコミット時の実行結果）。エンジン同士（各32局、違法手・失敗・時間上限0）: 段階3対2は19勝12敗1打切り、8対7は24勝8敗、13対12は20勝12敗、10対6は29勝3敗。Claudeデスクトップアプリ内蔵ブラウザ（Safariとは別の保存領域）で、表示・印の作成・停止／再開・やり直し・早い投了と内蔵AIへの切替は数えないことを確認。
+- Environment: 前回のセッション終了で開発サーバーも止まっていたため、同じ`KIFU_ENGINE_DIR`付きコマンドで`127.0.0.1:5173`に起動し直した（ターミナルのタブ「kiyu dev server」）。他のローカルサーバー（8765・8771）とSafariの記録には触れていない。
+- Remaining: 人に対する勝率・段級位・体感は未検証。中断した対局は数えない（負けそうな対局を中断すると強さが下がらない）。自動調整の記録はバックアップに入らない。数える対局を画面で終局まで確認できていない（内蔵ブラウザではエンジンが動かない。判定は単体テストで確認）。
+- Next: 本人が互角を目指すで5局以上指して体感を記録（KIF-022）。自動調整をバックアップに含めるかの判断（KIF-050）。KIF-023棋風改善は`WORK_ITEMS.md`の開始条件に沿って着手。
+- Boundary: PR #23はdraftのまま。マージ、Site配備、第三者エンジンの配布・正式採用、実データの削除・復元・破壊的変更は行っていない。

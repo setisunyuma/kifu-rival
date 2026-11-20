@@ -1,4 +1,4 @@
-import { Game, initialGame, puzzleGame } from "./shogi";
+import { Game, fromSfen, initialGame, puzzleGame, withRemainingPiecesToDefender } from "./shogi";
 
 /**
  * Skill map (docs/CURRICULUM.md §2). IDs are stable: progress data will refer to them.
@@ -92,6 +92,12 @@ export type Lesson = {
   skills: SkillId[];
   verify: LessonVerify;
   alsoMates?: string[];
+  /** Same learning aim across different positions; stable across content updates. */
+  transferGroup?: string;
+  /** A different position used to check transfer, rather than repeat a memorised answer. */
+  transfer?: boolean;
+  /** Verified example continuations, shown after the first-move answer is submitted. */
+  variations?: { moves: string[]; explanation: string }[];
   source: LessonSource;
   review: LessonReview;
   title: string;
@@ -104,6 +110,21 @@ export type Lesson = {
   answer: string;
   setup: () => Game;
 };
+
+/** Accept every listed correct first move. This does not claim the whole line was played. */
+export function acceptsLessonMove(lesson: Lesson, moveUsi: string): boolean {
+  return moveUsi === lesson.answer || (lesson.alsoMates ?? []).includes(moveUsi);
+}
+
+const originalSource: LessonSource = {
+  kind: "original", author: "ChatGPT", method: "棋友の合成局面をもとに手作業で構成。玉方は残り駒全部。全合法手・全応手と解説の手順をテストで検証（2026-11-16）",
+};
+const draftReview = (purpose: string, misconceptions: string[], difficulty: 1 | 2 | 3 | 4 | 5 = 2): LessonReview => ({
+  status: "draft", target: "王手・持ち駒・基本の1手詰を練習した人。段級位との対応は未検証",
+  purpose, misconceptions, intendedDifficulty: difficulty,
+  history: [{ date: "2026-11-16", by: "ChatGPT", note: "作問とL3の下書き。人による教育レビューは未実施" }],
+});
+const tsume = (sfen: string) => () => withRemainingPiecesToDefender(fromSfen(sfen));
 
 const kings = [
   { r: 8, c: 8, kind: "OU" as const, owner: "black" as const },
@@ -151,7 +172,7 @@ export const LESSONS: Lesson[] = [
   },
   {
     id: "rook-mate", review: { status: "draft", target: "入門〜15級。王手（A4）・持ち駒を打つ（A3）", purpose: "頭金型ではない基本の1手詰で、打った駒が守られていれば玉が取れないことを理解する", misconceptions: ["守りのない場所に飛車を打つ（玉に取られる）", "王手だが逃げ道が残る手を指す"], intendedDifficulty: 2, history: [{ date: "2026-11-15", by: "Claude", note: "L3の下書き。人のレビューは未実施" }] },
-    skills: ["A4", "C1"], verify: "mate-in-1", source: { kind: "original", author: "ChatGPT（試作第1号）", method: "手作業で作成、Claudeが自動検証（2026-11-15）" },
+    skills: ["A4", "C1"], verify: "mate-in-1", transferGroup: "guarded-rook", source: { kind: "original", author: "ChatGPT（試作第1号）", method: "手作業で作成、Claudeが自動検証（2026-11-15）" },
     stage: "02", category: "詰将棋", title: "はじめての一手詰", summary: "金の守りを利用して、飛車で玉を詰ます。",
     explanation: "王手を避ける合法手がなくなった状態を「詰み」という。この局面は飛車を1枚持っている。金の利きをよく見てみよう。",
     goal: "持ち駒の飛車を使って、一手で詰ませよう。", hint: "5二に飛車を打とう。飛車は金に守られている。", answer: "R*5b",
@@ -161,6 +182,78 @@ export const LESSONS: Lesson[] = [
       { r: 0, c: 3, kind: "FU", owner: "white" },
       { r: 0, c: 5, kind: "FU", owner: "white" },
     ], { black: { HI: 1 } }),
+  },
+  {
+    id: "rook-mate-transfer-center", skills: ["C1"], verify: "mate-in-1", transferGroup: "guarded-rook", transfer: true,
+    source: originalSource,
+    review: draftReview("玉の位置が変わっても、守られた飛車を打ち、逃げ道がないことを確かめる", ["玉に取られる飛車を打つ", "玉の位置だけを見て金の利きを確かめない"]),
+    stage: "02", category: "転用・1手詰", title: "別の筋でも、守りを使う", summary: "覚えたマスではなく、金の利きから詰みを探す。",
+    explanation: "持ち駒は飛車1枚。打つ飛車が守られているかと、玉の逃げ道を確かめよう。相手の持ち駒は盤上と自分の持ち駒以外の残り全部。",
+    goal: "持ち駒の飛車で、一手詰の初手を答えよう。", hint: "玉のすぐ下に打つ飛車を、3三の金が守れるか考えよう。", answer: "R*3b",
+    variations: [{ moves: ["R*3b"], explanation: "▲3二飛打まで。飛車は3三の金に守られ、2二・4二も金と飛車の利きで逃げられない。" }],
+    setup: tsume("5pkp1/9/6G2/9/9/9/9/9/K8 b R 1"),
+  },
+  {
+    id: "rook-mate-transfer-edge", skills: ["C1"], verify: "mate-in-1", transferGroup: "guarded-rook", transfer: true,
+    source: originalSource,
+    review: draftReview("盤の端でも、駒の守りと玉の逃げ道を組み合わせて1手詰を見つける", ["端の玉だからどこへ王手しても詰むと思う", "飛車を打つ場所が金に守られているかを見落とす"]),
+    stage: "02", category: "転用・1手詰", title: "端の玉の逃げ道", summary: "端の形で、飛車と金の役割を確かめる。",
+    explanation: "端の玉は逃げ道が少ない。ただし王手だけでなく、取られない飛車を打つことが必要だ。相手の持ち駒は残り全部。",
+    goal: "持ち駒の飛車で、一手詰の初手を答えよう。", hint: "1三の金が守っている、玉のすぐ下のマスを見よう。", answer: "R*1b",
+    variations: [{ moves: ["R*1b"], explanation: "▲1二飛打まで。飛車は1三の金に守られている。2一には後手の歩があり、2二は飛車と金が利いている。" }],
+    setup: tsume("7pk/9/8G/9/9/9/9/9/K8 b R 1"),
+  },
+  {
+    id: "double-rook-mate-3", skills: ["C2"], verify: "mate-in-3", transferGroup: "rook-sandwich",
+    source: originalSource,
+    review: draftReview("1枚目の飛車で玉を横へ動かし、2枚目の飛車を守りながら詰ます3手のつながりを読む", ["最初から1段目に飛車を打つ", "玉が左右どちらへ逃げるか一方しか読まない"], 3),
+    stage: "03", category: "詰将棋・3手", title: "二枚の飛車で挟む", summary: "玉がどちらへ逃げても、同じ仕上げを読む。",
+    explanation: "3手詰は、自分の王手・相手の応手・最後の王手までを読む練習。まず初手を答え、正解後に解説で応手と詰みまでを確認しよう。相手の持ち駒は残り全部。",
+    goal: "飛車2枚を使う三手詰。最初の一手を答えよう。", hint: "3一の銀が4二を守っている。まず2段目の飛車で玉を横へ動かそう。", answer: "R*4b",
+    variations: [
+      { moves: ["R*4b", "4a5a", "R*4a"], explanation: "▲4二飛打→△5一玉→▲4一飛打まで。最後の飛車は4二の飛車に守られ、1段目と2段目の逃げ道を二枚でふさぐ。" },
+      { moves: ["R*4b", "4a3a", "R*4a"], explanation: "▲4二飛打に△3一玉と銀を取っても、▲4一飛打まで。左右どちらへの逃げも同じ仕上げになる。" },
+    ],
+    setup: tsume("5kS2/8l/5b3/9/9/9/9/9/K8 b 2R 1"),
+  },
+  {
+    id: "double-gold-mate-3", skills: ["C2"], verify: "mate-in-3", transferGroup: "gold-net",
+    alsoMates: ["G*3b"], source: originalSource,
+    review: draftReview("角の利きを使って1枚目の金を守り、玉の移動先を2枚目の金で詰ます", ["守りのない頭金をいきなり打つ", "模範手と逆側の正しい金打ちを誤りだと思う"], 3),
+    stage: "03", category: "詰将棋・3手", title: "角に支えられた二枚の金", summary: "同じ狙いの正しい初手が二つある問題。",
+    explanation: "金を一枚ずつ使い、玉を横へ動かしてから逃げ道を閉じよう。この問題には正しい初手が二つある。相手の持ち駒は残り全部。",
+    goal: "金2枚を使う三手詰。正しい初手を一つ答えよう。", hint: "4三の角が守る3二と5二に注目。玉の次の移動先まで読んでみよう。", answer: "G*5b",
+    variations: [
+      { moves: ["G*5b", "4a3a", "G*3b"], explanation: "▲5二金打→△3一玉→▲3二金打まで。二枚の金は4三の角に守られ、最後の頭金で逃げ道がなくなる。" },
+      { moves: ["G*3b", "4a5a", "G*5b"], explanation: "▲3二金打→△5一玉→▲5二金打も正解。左右を入れ替えても、角に守られた二枚の金という狙いは同じ。" },
+    ],
+    setup: tsume("5k3/9/5B3/9/9/9/9/9/K8 b 2G 1"),
+  },
+  {
+    id: "double-rook-mate-3-transfer", skills: ["C2"], verify: "mate-in-3", transferGroup: "rook-sandwich", transfer: true,
+    source: originalSource,
+    review: draftReview("筋が変わった局面で、二枚の飛車による挟撃を自分で組み立てる", ["前の問題と同じ4二に打つ", "一枚目を守る銀の位置を見落とす"], 3),
+    stage: "03", category: "転用・3手詰", title: "場所が変わった二枚の飛車", summary: "マスの暗記から、飛車どうしの支えへ。",
+    explanation: "玉と銀の位置が変わった。二枚の飛車が最後に互いを支えられるよう、初手から組み立てよう。相手の持ち駒は残り全部。",
+    goal: "飛車2枚で三手詰。最初の一手を答えよう。", hint: "4一の銀が守る5二から、1段目をふさぐ形を考えよう。", answer: "R*5b",
+    variations: [
+      { moves: ["R*5b", "5a6a", "R*5a"], explanation: "▲5二飛打→△6一玉→▲5一飛打まで。5二の飛車が最後の飛車を守り、二枚で上下の逃げ道を閉じる。" },
+      { moves: ["R*5b", "5a4a", "R*5a"], explanation: "▲5二飛打→△4一玉→▲5一飛打まで。銀を取る応手にも同じ仕上げになる。初手から左右の逃げを両方確かめよう。" },
+    ],
+    setup: tsume("4kS3/7l1/4b4/9/9/9/9/9/K8 b 2R 1"),
+  },
+  {
+    id: "double-gold-mate-3-transfer", skills: ["C2"], verify: "mate-in-3", transferGroup: "gold-net", transfer: true,
+    alsoMates: ["G*1b"], source: originalSource,
+    review: draftReview("盤の端が近い局面でも、角の支えと二枚の金を使う3手の狙いを転用する", ["端に近いので手順を読まずに頭金を打つ", "初手を片側に限定してしまう"], 3),
+    stage: "03", category: "転用・3手詰", title: "端へ誘う二枚の金", summary: "盤の端と駒の利きで、逃げ道を確かめる。",
+    explanation: "2三の角と持ち駒の金2枚を使う。玉を動かす初手と、移動先での仕上げを続けて考えよう。相手の持ち駒は残り全部。",
+    goal: "三手詰の正しい初手を一つ答えよう。", hint: "角が守っている1二または3二に金を打つと、玉はどこへ逃げるだろう。", answer: "G*3b",
+    variations: [
+      { moves: ["G*3b", "2a1a", "G*1b"], explanation: "▲3二金打→△1一玉→▲1二金打まで。最後の金は2三の角に守られ、端の玉の逃げ道を閉じる。" },
+      { moves: ["G*1b", "2a3a", "G*3b"], explanation: "▲1二金打→△3一玉→▲3二金打も正解。逆側へ逃がす手順でも、角の支えを使える。" },
+    ],
+    setup: tsume("7k1/9/7B1/9/9/9/9/9/K8 b 2G 1"),
   },
 ];
 
@@ -177,8 +270,21 @@ export const ROADMAP = [
 // numbers below are initial hypotheses to be tuned with real use.
 // ---------------------------------------------------------------------------
 
-/** One answer to a lesson. Stored on the device (localStorage), never sent elsewhere. */
-export type LessonAttempt = { lessonId: string; correct: boolean; at: string };
+/** One first-move answer. Missing optional fields are unknown in legacy records. */
+export type LessonAttempt = {
+  lessonId: string;
+  correct: boolean;
+  at: string;
+  hinted?: boolean;
+  /** First recorded answer to this position, not proof that the whole line was played. */
+  firstSeen?: boolean;
+};
+
+/** The caller also remembers answered IDs beyond its retained attempt window. */
+export function createLessonAttempt(lessonId: string, correct: boolean, at: string, attempts: readonly LessonAttempt[], hinted = false,
+  seenLessonIds: readonly string[] = []): LessonAttempt {
+  return { lessonId, correct, at, hinted, firstSeen: !attempts.some(a => a.lessonId === lessonId) && !seenLessonIds.includes(lessonId) };
+}
 
 /** Review intervals in days for boxes 1..4 (Leitner-style). Hypothesis. */
 export const REVIEW_INTERVAL_DAYS = [1, 3, 7, 21];
@@ -197,6 +303,10 @@ export type LessonState = {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+const orderedAttempts = (attempts: readonly LessonAttempt[]) => attempts
+  .filter(a => Number.isFinite(Date.parse(a.at)))
+  .slice().sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+
 /**
  * Replay attempts in time order. A correct answer moves the lesson up one box only
  * when it was due (re-solving early does not count as spaced practice); a wrong
@@ -204,32 +314,54 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  */
 export function lessonStates(attempts: LessonAttempt[], lessons: Lesson[] = LESSONS): Map<string, LessonState> {
   const states = new Map<string, LessonState>(lessons.map(l => [l.id, { lessonId: l.id, box: 0 }]));
-  const ordered = [...attempts].sort((a, b) => a.at.localeCompare(b.at));
+  const ordered = orderedAttempts(attempts);
   for (const a of ordered) {
     const st = states.get(a.lessonId);
     if (!st) continue;
-    const due = !st.dueAt || a.at >= st.dueAt;
-    if (a.correct) st.box = st.box === 0 ? 1 : due ? Math.min(st.box + 1, REVIEW_INTERVAL_DAYS.length) : st.box;
+    const due = !st.dueAt || Date.parse(a.at) >= Date.parse(st.dueAt);
+    if (a.correct && a.hinted !== true) st.box = st.box === 0 ? 1 : due ? Math.min(st.box + 1, REVIEW_INTERVAL_DAYS.length) : st.box;
+    else if (a.correct) { /* An assisted answer does not advance the review box. */ }
     else st.box = st.box === 0 ? 0 : 1;
     st.lastAt = a.at; st.lastCorrect = a.correct;
-    st.dueAt = st.box > 0 ? new Date(new Date(a.at).getTime() + REVIEW_INTERVAL_DAYS[st.box - 1] * DAY_MS).toISOString() : undefined;
+    st.dueAt = st.box > 0 || a.hinted === true
+      ? new Date(Date.parse(a.at) + REVIEW_INTERVAL_DAYS[Math.max(0, st.box - 1)] * DAY_MS).toISOString() : undefined;
   }
   return states;
 }
 
 /**
- * Provisional skill mastery: a skill counts as practised when every lesson that
- * teaches it has reached box 2 (answered correctly again after a delay). This is a
- * stand-in until transfer problems exist (re-solving the same position can be memorised).
+ * Provisional practice readiness, NOT transfer mastery. It remains a path to the next
+ * lesson even if a small transfer bank is exhausted. Transfer problems are counted
+ * separately by masteredSkills, so adding them does not reset basic practice progress.
  */
 export function practisedSkills(states: Map<string, LessonState>, lessons: Lesson[] = LESSONS): Set<SkillId> {
   const out = new Set<SkillId>();
   const taught = new Set(lessons.flatMap(l => l.skills));
   for (const skill of taught) {
-    const ls = lessons.filter(l => l.skills.includes(skill));
-    if (ls.every(l => (states.get(l.id)?.box ?? 0) >= 2)) out.add(skill);
+    const ls = lessons.filter(l => !l.transfer && l.skills.includes(skill));
+    if (ls.length && ls.every(l => (states.get(l.id)?.box ?? 0) >= 2)) out.add(skill);
   }
   return out;
+}
+
+/**
+ * Initial hypothesis: two distinct unseen transfer positions answered correctly without
+ * hints, at least 24 hours apart. Old records and repeated answers are not fresh evidence.
+ * The returned set concerns the first-move skill; it does not certify an entire variation.
+ * Unknown lesson IDs are ignored for this calculation, never removed from saved history.
+ */
+export function masteredSkills(attempts: readonly LessonAttempt[], lessons: Lesson[] = LESSONS): Set<SkillId> {
+  const byId = new Map(lessons.map(l => [l.id, l]));
+  const seen = new Set<string>();
+  const evidence = new Map<SkillId, number[]>();
+  for (const a of orderedAttempts(attempts)) {
+    const first = !seen.has(a.lessonId);
+    seen.add(a.lessonId);
+    const lesson = byId.get(a.lessonId);
+    if (!first || !lesson?.transfer || !a.correct || a.hinted !== false || a.firstSeen !== true) continue;
+    for (const skill of lesson.skills) evidence.set(skill, [...(evidence.get(skill) ?? []), Date.parse(a.at)]);
+  }
+  return new Set([...evidence].filter(([, dates]) => dates.length >= 2 && dates[dates.length - 1] - dates[0] >= DAY_MS).map(([skill]) => skill));
 }
 
 /**
@@ -284,17 +416,41 @@ export function dailyPlan(attempts: LessonAttempt[], now: Date, lessons: Lesson[
   const nowIso = now.toISOString();
   const plan: PlanItem[] = [];
   const taken = new Set<string>();
+  let freshTransferAdded = false;
   const add = (lessonId: string | undefined, reason: PlanItem["reason"]) => {
-    if (lessonId && !taken.has(lessonId) && plan.length < DAILY_PLAN_SIZE) { plan.push({ lessonId, reason }); taken.add(lessonId); }
+    const freshTransfer = lessonId && lessons.find(l => l.id === lessonId)?.transfer && !states.get(lessonId)?.lastAt;
+    if (freshTransfer && freshTransferAdded) return;
+    if (lessonId && !taken.has(lessonId) && plan.length < DAILY_PLAN_SIZE) {
+      plan.push({ lessonId, reason }); taken.add(lessonId);
+      if (freshTransfer) freshTransferAdded = true;
+    }
   };
   const all = [...states.values()];
   const weak = all.filter(s => s.lastCorrect === false).sort((a, b) => (b.lastAt ?? "").localeCompare(a.lastAt ?? ""));
   const due = all.filter(s => s.dueAt && s.dueAt <= nowIso && s.lastCorrect !== false).sort((a, b) => (a.dueAt ?? "").localeCompare(b.dueAt ?? ""));
-  const practised = practisedSkills(states, lessons);
-  const fresh = lessons.filter(l => !all.find(s => s.lessonId === l.id)?.lastAt && prerequisitesMet(l, practised, lessons));
+  // Practice readiness keeps the small question bank from permanently locking later
+  // lessons. Actual transfer mastery remains separately observable via masteredSkills.
+  const ready = new Set([...practisedSkills(states, lessons), ...masteredSkills(attempts, lessons)]);
+  const transferIds = new Set(lessons.filter(l => l.transfer).map(l => l.id));
+  const recentTransfer = attempts.some(a => transferIds.has(a.lessonId) && Number.isFinite(Date.parse(a.at))
+    && now.getTime() - Date.parse(a.at) >= 0 && now.getTime() - Date.parse(a.at) < DAY_MS);
+  const transferReady = (l: Lesson) => !l.transfer || (!recentTransfer && lessons.some(base => !base.transfer
+    && base.transferGroup === l.transferGroup && states.get(base.id)?.lastCorrect === true));
+  const fresh = lessons.filter(l => !states.get(l.id)?.lastAt && prerequisitesMet(l, ready, lessons) && transferReady(l));
   add(due[0]?.lessonId, "review");
   add(weak[0]?.lessonId, "weak");
-  add(lessonsForSkills(gameSkills, lessons).find(id => !taken.has(id)), "game");
+  // A game mistake is a reason to learn, not permission to skip required foundations.
+  let frontier = [...gameSkills];
+  const visited = new Set<SkillId>();
+  while (frontier.length) {
+    const candidates = lessons.filter(l => !l.transfer && l.skills.some(skill => frontier.includes(skill)) && prerequisitesMet(l, ready, lessons));
+    if (candidates.length) {
+      const preferred = candidates.find(l => !taken.has(l.id) && !states.get(l.id)?.lastAt) ?? candidates.find(l => !taken.has(l.id));
+      add(preferred?.id, "game"); break;
+    }
+    frontier.forEach(skill => visited.add(skill));
+    frontier = frontier.flatMap(skill => SKILLS[skill].requires).filter(skill => !visited.has(skill));
+  }
   for (const l of fresh) add(l.id, "new");
   for (const s of due.slice(1)) add(s.lessonId, "review");
   for (const s of weak.slice(1)) add(s.lessonId, "weak");

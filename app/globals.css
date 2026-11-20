@@ -696,3 +696,8 @@ body {
 .study-steps { margin: 8px 0; padding-left: 4px; list-style: none; display: grid; gap: 4px; }
 .study-steps .step-current { font-weight: 700; }
 .study-steps .step-done { color: #3b7350; }
+
+.adaptive-panel { display: grid; gap: 4px; margin: 6px 0 10px; padding: 10px 12px; border: 1px solid var(--line, #d8d2c4); border-radius: 10px; font-size: 13px; line-height: 1.5; }
+.adaptive-panel strong { font-size: 13px; }
+.adaptive-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.adaptive-warning { color: #9a3b2b; }

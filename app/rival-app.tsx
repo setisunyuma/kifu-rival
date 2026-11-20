@@ -26,6 +26,8 @@ import type { SavedState } from "../lib/backup";
 import { assertBackupCapacity } from "../lib/backup";
 import { STORAGE_KEY, restoreSavedState } from "../lib/persistence";
 import { useEngineSettings, useEngineTurn } from "../hooks/use-engine-rival";
+import { useAdaptiveStrength } from "../hooks/use-adaptive-strength";
+import { TOP_LEVEL } from "../lib/engine/adaptive-strength";
 import type { EngineTurn } from "../lib/engine/engine-rival";
 import { PURPOSE_LABELS, STRENGTH_PROFILES, STYLE_LABELS } from "../lib/engine/rival-policy";
 import type { RivalPurpose, RivalStrength, RivalStyle } from "../lib/engine/rival-policy";
@@ -225,7 +227,7 @@ export default function RivalApp() {
   const confirmedSkills = useMemo(() => masteredSkills(attempts), [attempts]);
   const stats = { won: records.filter(x => x.result === "black").length, lost: records.filter(x => x.result === "white").length };
 
-  function saveMatch(result: GameRecord["result"], position: Game) {
+  function saveMatch(result: GameRecord["result"], position: Game, how?: "resign") {
     const notation = position.history.map(usi);
     const completeLog = position.positionLog?.length === position.history.length + 1;
     const start = completeLog ? position.positionLog![0].key : undefined;
@@ -235,6 +237,12 @@ export default function RivalApp() {
     const nextRecords = [record, ...latest.records];
     if (!hasRoom({ ...latest, game: { ...position, result }, records: nextRecords })) return false;
     setRecords(nextRecords);
+    // KIF-022 stage 2: only a game started with a rating token counts (once) toward the adaptive strength.
+    const counted = adaptive.record({ opponent: engineChoice.match.opponent, strength: engineChoice.match.strength, token: engineChoice.rated,
+      result, plies: position.history.length, customStart: !!startSfen, resigned: how === "resign", at: record.date });
+    if (engineChoice.match.opponent === "engine" && engineChoice.match.strength === "balanced") {
+      setAdaptiveNotice(counted.counted ? "この対局を自動調整に数えました。" : `この対局は自動調整に数えていません（${counted.reason}）。`);
+    }
     // The existing cloud schema describes games from the standard starting position.
     if (!startSfen) sendProgress({ type: "game", result, moves: notation });
     return true;
@@ -244,9 +252,9 @@ export default function RivalApp() {
     finishOrContinue(playMove(position, move));
   }
 
-  function finishOrContinue(next: Game) {
+  function finishOrContinue(next: Game, how?: "resign") {
     if (next.result === "playing") { if (!hasRoom({ ...currentSnapshot.current, game: next })) return false; }
-    else if (!saveMatch(next.result, next)) return false;
+    else if (!saveMatch(next.result, next, how)) return false;
     setGame(next);
     setSelected(null);
     setSelectedDrop(null);
@@ -264,11 +272,27 @@ export default function RivalApp() {
 
   // KIF-021: the opponent is fixed per game. The engine is used only when it is actually available.
   const engineChoice = useEngineSettings();
+  const adaptive = useAdaptiveStrength();
+  const [adaptiveNotice, setAdaptiveNotice] = useState("");
   const engineMatch = engineChoice.match.opponent === "engine";
+  const adaptiveMatch = engineMatch && engineChoice.match.strength === "balanced";
+  // A game that has not started yet takes the current adaptive level; once the first move is
+  // played the token (and so the game's strength) is fixed until the game ends.
+  const unstarted = game.history.length === 0 && game.result === "playing";
+  useEffect(() => {
+    if (!hydrated || !engineChoice.loaded || !adaptive.loaded || !unstarted) return;
+    const bound = engineChoice.rated;
+    if (!adaptiveMatch) { if (bound) engineChoice.bindRated(undefined); return; }
+    const counts = adaptive.state.enabled && !adaptive.readOnly;
+    if (!bound || bound.level !== adaptive.state.level || bound.counts !== counts || bound.generation !== adaptive.state.generation) engineChoice.bindRated(adaptive.newToken());
+    // The token is derived from these values only; engineChoice/adaptive are stable hook results.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, engineChoice.loaded, adaptive.loaded, unstarted, adaptiveMatch, engineChoice.rated, adaptive.state.level, adaptive.state.enabled, adaptive.state.generation, adaptive.readOnly]);
   const engineReady = engineChoice.availability.status === "available";
   const [enginePaused, setEnginePaused] = useState(false);
   const rivalToMove = hydrated && !importPreview && game.turn === "white" && game.result === "playing";
-  const enginePolicy = useMemo(() => ({ strength: engineChoice.match.strength, style: engineChoice.match.style, purpose: engineChoice.match.purpose }), [engineChoice.match.strength, engineChoice.match.style, engineChoice.match.purpose]);
+  const matchNodes = adaptiveMatch ? engineChoice.rated?.nodes : undefined;
+  const enginePolicy = useMemo(() => ({ strength: engineChoice.match.strength, style: engineChoice.match.style, purpose: engineChoice.match.purpose, ...(matchNodes ? { nodes: matchNodes } : {}) }), [engineChoice.match.strength, engineChoice.match.style, engineChoice.match.purpose, matchNodes]);
   function applyEngineTurn(turn: EngineTurn, position: Game) {
     const d = turn.decision;
     if (d.kind === "move") commitMove(position, d.choice.move);
@@ -355,14 +379,14 @@ export default function RivalApp() {
   }
 
   function newGame() {
-    engineChoice.startMatch(); setEnginePaused(false);
+    engineChoice.startMatch(); setEnginePaused(false); setAdaptiveNotice("");
     setGame(initialGame(ruleSetting)); setSelected(null); setSelectedDrop(null); setPromotion(null); setDeclaring(false);
     setToast("新しい対局を始めました。");
   }
 
   function resign() {
     if (game.result !== "playing" || game.history.length === 0) { newGame(); return; }
-    if (finishOrContinue({ ...game, result: "white" })) setToast("投了を記録しました。");
+    if (finishOrContinue({ ...game, result: "white" }, "resign")) setToast("投了を記録しました。");
   }
 
   // On a phone the lesson board sits below the lesson list; a study path opens it directly.
@@ -381,6 +405,8 @@ export default function RivalApp() {
     catch { throw new Error("端末に復元できませんでした。保存容量やブラウザの設定を確認してください。元の保存記録は変更していません。"); }
     dataRevision.current += 1;
     saveAllowed.current = true;
+    // A restored game is not the game the rating token was created for.
+    engineChoice.bindRated(undefined);
     applySavedState(restored);
     setCloudStatus("paused"); setStorageError("");
     setSelected(null); setSelectedDrop(null); setDeclaring(false); setDraft("");
@@ -463,7 +489,7 @@ export default function RivalApp() {
             <div className="play-layout">
               <section className="panel board-panel">
                 <div className="board-panel-head"><div><p className="section-eyebrow">PRACTICE MATCH · 棋譜</p><h2>棋友との対局</h2></div><span className="mode-chip"><span /> 練習対局</span></div>
-                <div className="board-status-row"><div className="player-label"><RivalFace /><div><strong>棋友 <small>AI</small></strong><span>{engineMatch ? `強いエンジン（開発版）· ${STRENGTH_PROFILES[engineChoice.match.strength].label}・${STYLE_LABELS[engineChoice.match.style]}` : `内蔵AI · Lv.${level}`}</span></div></div><span className="turn-badge">{game.result !== "playing" ? "対局終了" : engineMatch && rivalToMove && enginePaused ? "中断中" : thinking ? (engineThinking ? `考慮中 ${(thinkClock / 1000).toFixed(1)}秒` : "考慮中") : game.turn === "white" ? "棋友の手番" : "あなたの手番"}</span></div>
+                <div className="board-status-row"><div className="player-label"><RivalFace /><div><strong>棋友 <small>AI</small></strong><span>{engineMatch ? `強いエンジン（開発版）· ${STRENGTH_PROFILES[engineChoice.match.strength].label}${adaptiveMatch && engineChoice.rated ? `（段階${engineChoice.rated.level}）` : ""}・${STYLE_LABELS[engineChoice.match.style]}` : `内蔵AI · Lv.${level}`}</span></div></div><span className="turn-badge">{game.result !== "playing" ? "対局終了" : engineMatch && rivalToMove && enginePaused ? "中断中" : thinking ? (engineThinking ? `考慮中 ${(thinkClock / 1000).toFixed(1)}秒` : "考慮中") : game.turn === "white" ? "棋友の手番" : "あなたの手番"}</span></div>
                 <div className="board-padding"><ShogiBoard game={game} selected={selected} selectedDrop={selectedDrop} legal={moves} onSquare={(r, c) => handleSquare(r, c, false)} onHand={kind => handleHand(kind, false)} disabled={game.turn !== "black" || game.result !== "playing" || thinking} /></div>
                 <div className="board-actions"><button type="button" className="secondary-button" onClick={newGame}><RotateCcw size={15} /> 新しい対局</button><button type="button" className="text-button" onClick={resign} disabled={game.result !== "playing" || game.history.length === 0}><Flag size={15} /> 投了する</button>{game.result === "playing" && game.turn === "black" && !thinking && myDeclaration.kingInCamp && !declaring && <button type="button" className="secondary-button declare-button" onClick={() => setDeclaring(true)}><Crown size={15} /> 入玉宣言</button>}{engineMatch && game.result === "playing" && (enginePaused ? <button type="button" className="secondary-button" onClick={() => setEnginePaused(false)}>対局を再開</button> : <button type="button" className="text-button" onClick={() => setEnginePaused(true)}>対局を中断</button>)}<span className="move-count">第 {game.history.length} 手</span></div>
                 {engineMatch && game.result === "playing" && !engineReady && <div className="engine-alert" role="alert"><strong>強いエンジンを使えません。</strong><span>{engineChoice.availability.status === "unavailable" ? engineChoice.availability.reason : "接続を確認しています…"}</span><button type="button" className="secondary-button" onClick={() => engineChoice.update({ opponent: "builtin" }, true)}>内蔵AIで続ける</button></div>}
@@ -478,13 +504,22 @@ export default function RivalApp() {
                   <p>{myDeclaration.outcome === "win" ? "このまま宣言すると、あなたの勝ちです。" : myDeclaration.outcome === "draw" ? "このまま宣言すると、引き分け（指し直し相当）です。" : "条件を満たしていません。規則どおり、宣言するとあなたの負けになります。"}</p>
                   <div className="declare-actions"><button type="button" className="secondary-button" onClick={() => setDeclaring(false)}>やめる</button><button type="button" className={myDeclaration.outcome === "lose" ? "text-button" : "primary-button"} onClick={confirmDeclaration}>宣言する</button></div>
                 </div>}
-                {game.result !== "playing" && <div className="result-banner"><Crown size={19} /> {game.result === "black" ? "対局終了。あなたの勝ちです。" : game.result === "white" ? "対局終了。棋友の勝ちです。" : "対局終了。引き分けです。"}{game.declaration && <span className="declare-note">入玉宣言（{game.declaration.side === "black" ? "あなた" : "棋友"}・{game.declaration.points}点）</span>}<button onClick={newGame}>もう一局 <ArrowRight size={14} /></button></div>}
+                {game.result !== "playing" && <div className="result-banner"><Crown size={19} /> {game.result === "black" ? "対局終了。あなたの勝ちです。" : game.result === "white" ? "対局終了。棋友の勝ちです。" : "対局終了。引き分けです。"}{game.declaration && <span className="declare-note">入玉宣言（{game.declaration.side === "black" ? "あなた" : "棋友"}・{game.declaration.points}点）</span>}<button onClick={newGame}>もう一局 <ArrowRight size={14} /></button>{adaptiveNotice && <span className="declare-note">{adaptiveNotice}</span>}</div>}
                 <p className="board-disclaimer"><CircleHelp size={13} /> {engineMatch ? "強いエンジンは開発版の試験接続です。指し手は棋友のルール判定で合法性を確かめてから盤に反映します。" : "内蔵AIは基本的な合法手に対応する練習AIです。棋力は高くありません。"}</p>
               </section>
               <aside className="play-rail">
                 <section className="panel rival-card"><div className="rival-card-art"><RivalFace large /></div><div className="rival-card-copy"><span className="tiny-label">YOUR RIVAL / 棋友</span><h3>今日も、良い将棋を。</h3><p>互いに考え抜いた一手を重ねよう。勝っても負けても、次の一局が楽しみだ。</p></div><div className="level-select"><label htmlFor="opponent"><Swords size={14} /> 対局相手</label><select id="opponent" value={engineChoice.settings.opponent} onChange={e => engineChoice.update({ opponent: e.target.value as "builtin" | "engine" }, game.history.length === 0 || game.result !== "playing")}><option value="builtin">内蔵AI（Lv.1〜4）</option><option value="engine" disabled={!engineReady && engineChoice.settings.opponent !== "engine"}>強いエンジン（開発版）</option></select>{!engineReady && <small className="rule-note">{engineChoice.availability.status === "unavailable" ? engineChoice.availability.reason : "エンジンを確認中…"}</small>}{engineReady && engineChoice.availability.status === "available" && <small className="rule-note">{engineChoice.availability.manifest.name} {engineChoice.availability.manifest.version}（{engineChoice.availability.manifest.license}）· この端末内で計算。正式採用・配布は未承認。</small>}</div>
                 {engineChoice.settings.opponent === "engine" ? <>
-                  <div className="level-select"><label htmlFor="engine-strength"><Settings2 size={14} /> 強さ</label><select id="engine-strength" value={engineChoice.settings.strength} onChange={e => engineChoice.update({ strength: e.target.value as RivalStrength }, game.history.length === 0 || game.result !== "playing")}>{(Object.keys(STRENGTH_PROFILES) as RivalStrength[]).map(k => <option key={k} value={k}>{STRENGTH_PROFILES[k].label}</option>)}</select><small className="rule-note">{STRENGTH_PROFILES[engineChoice.settings.strength].summary}</small></div>
+                  <div className="level-select"><label htmlFor="engine-strength"><Settings2 size={14} /> 強さ</label><select id="engine-strength" value={engineChoice.settings.strength} onChange={e => engineChoice.update({ strength: e.target.value as RivalStrength }, game.history.length === 0 || game.result !== "playing")}>{(Object.keys(STRENGTH_PROFILES) as RivalStrength[]).map(k => <option key={k} value={k}>{STRENGTH_PROFILES[k].label}</option>)}</select><small className="rule-note">{engineChoice.settings.strength === "balanced" ? "あなたの成績に合わせて読む量を自動で調整します（4千〜30万局面の16段階）。" : STRENGTH_PROFILES[engineChoice.settings.strength].summary}</small></div>
+                  {engineChoice.settings.strength === "balanced" && <div className="adaptive-panel" aria-live="polite">
+                    <strong>自動調整 {adaptive.readOnly ? "（変更できません）" : adaptive.state.enabled ? (adaptive.summary.calibrating ? `調整中（あと${adaptive.summary.remaining}局）` : "調整済み") : "（停止中）"}</strong>
+                    <span>次の対局: 段階{adaptive.summary.level}/{TOP_LEVEL}（1手約{adaptive.summary.nodes.toLocaleString("ja-JP")}局面）{adaptive.state.enabled ? "" : "。結果では変わりません"}</span>
+                    {adaptiveMatch && engineChoice.rated && !unstarted && <span>この対局: 段階{engineChoice.rated.level}で固定{engineChoice.rated.counts ? "（終局すると数えます）" : "（数えません）"}</span>}
+                    <span>数えた対局 {adaptive.summary.rated}局{adaptive.summary.recent.games ? `・直近${adaptive.summary.recent.games}局 ${adaptive.summary.recent.win}勝${adaptive.summary.recent.loss}敗${adaptive.summary.recent.draw ? `${adaptive.summary.recent.draw}分` : ""}` : ""}</span>
+                    {(adaptive.warning || adaptive.saveError) && <span className="adaptive-warning" role="alert">{adaptive.saveError ?? adaptive.warning}{adaptive.saveError && <button type="button" className="text-button" onClick={adaptive.retrySave}>もう一度保存</button>}</span>}
+                    {!adaptive.readOnly && <span className="adaptive-actions"><button type="button" className="text-button" onClick={() => adaptive.setEnabled(!adaptive.state.enabled)}>{adaptive.state.enabled ? "自動調整を止める" : "自動調整を再開"}</button><button type="button" className="text-button" onClick={() => { if (window.confirm("自動調整の記録（数えた対局と現在の段階）を消し、段階8から調整し直します。対局記録そのものは消えません。よろしいですか？")) adaptive.reset(); }}>調整をやり直す</button></span>}
+                    <small className="rule-note">段階はエンジンの設定で、段級位や人に対する勝率とは対応づけていません。数えるのは、この機能を入れた後に「互角を目指す」で始めて終局した対局だけです。</small>
+                  </div>}
                   <div className="level-select"><label htmlFor="engine-style"><Sparkles size={14} /> 棋風</label><select id="engine-style" value={engineChoice.settings.style} onChange={e => engineChoice.update({ style: e.target.value as RivalStyle }, game.history.length === 0 || game.result !== "playing")}>{(Object.keys(STYLE_LABELS) as RivalStyle[]).map(k => <option key={k} value={k}>{STYLE_LABELS[k]}</option>)}</select></div>
                   <div className="level-select"><label htmlFor="engine-purpose"><Target size={14} /> 目的</label><select id="engine-purpose" value={engineChoice.settings.purpose} onChange={e => engineChoice.update({ purpose: e.target.value as RivalPurpose }, game.history.length === 0 || game.result !== "playing")}>{(Object.keys(PURPOSE_LABELS) as RivalPurpose[]).map(k => <option key={k} value={k}>{PURPOSE_LABELS[k]}</option>)}</select></div>
                   {JSON.stringify(engineChoice.settings) !== JSON.stringify(engineChoice.match) && game.result === "playing" && game.history.length > 0 && <small className="rule-note">対局相手の設定は次の対局から変わります。</small>}

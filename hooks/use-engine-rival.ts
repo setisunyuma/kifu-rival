@@ -8,6 +8,8 @@ import type { EngineTurn } from "../lib/engine/engine-rival";
 import { EngineError, enginePositionKey } from "../lib/engine/usi-adapter";
 import { STRENGTH_PROFILES } from "../lib/engine/rival-policy";
 import type { RivalPolicy, RivalPurpose, RivalStrength, RivalStyle } from "../lib/engine/rival-policy";
+import { TOP_LEVEL, levelNodes } from "../lib/engine/adaptive-strength";
+import type { MatchToken } from "../lib/engine/adaptive-strength";
 
 export type Opponent = "builtin" | "engine";
 export type EngineSettings = { opponent: Opponent; strength: RivalStrength; style: RivalStyle; purpose: RivalPurpose };
@@ -34,14 +36,32 @@ export function parseEngineSettings(raw: string | null): EngineSettings {
   } catch { return DEFAULT_ENGINE_SETTINGS; }
 }
 
-type StoredEngineSettings = { next: EngineSettings; match: EngineSettings };
+/**
+ * `rated` is the adaptive-strength token of the current game (KIF-022 stage 2). Older app versions
+ * ignore it. It is dropped whenever the current game's settings change, so a game that switched
+ * opponent or strength part-way is never counted.
+ */
+type StoredEngineSettings = { next: EngineSettings; match: EngineSettings; rated?: MatchToken };
+
+/** Accept only a token that matches the ladder exactly; anything else means "not rated". */
+export function parseMatchToken(value: unknown): MatchToken | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return;
+  const { id, level, nodes, counts, generation } = value as Record<string, unknown>;
+  if (typeof id !== "string" || !id || id.length > 100) return;
+  if (!Number.isInteger(level) || (level as number) < 0 || (level as number) > TOP_LEVEL) return;
+  if (nodes !== levelNodes(level as number) || typeof counts !== "boolean") return;
+  if (!Number.isSafeInteger(generation) || (generation as number) < 0) return;
+  return { id, level: level as number, nodes, counts, generation: generation as number };
+}
 
 export function parseStoredEngineSettings(raw: string | null): StoredEngineSettings {
   if (!raw) return { next: DEFAULT_ENGINE_SETTINGS, match: DEFAULT_ENGINE_SETTINGS };
   try {
-    const data = JSON.parse(raw) as { next?: unknown; match?: unknown };
+    const data = JSON.parse(raw) as { next?: unknown; match?: unknown; rated?: unknown };
     const next = parseEngineSettings(JSON.stringify(data.next ?? null));
-    return { next, match: data.match ? parseEngineSettings(JSON.stringify(data.match)) : next };
+    const match = data.match ? parseEngineSettings(JSON.stringify(data.match)) : next;
+    const rated = parseMatchToken(data.rated);
+    return { next, match, ...(rated ? { rated } : {}) };
   } catch { return { next: DEFAULT_ENGINE_SETTINGS, match: DEFAULT_ENGINE_SETTINGS }; }
 }
 
@@ -52,11 +72,12 @@ export function parseStoredEngineSettings(raw: string | null): StoredEngineSetti
 export function useEngineSettings() {
   const [stored, setStored] = useState<StoredEngineSettings>({ next: DEFAULT_ENGINE_SETTINGS, match: DEFAULT_ENGINE_SETTINGS });
   const [availability, setAvailability] = useState<EngineAvailability>({ status: "checking" });
+  const [loadedState, setLoadedState] = useState(false);
   const loaded = useRef(false);
   useEffect(() => {
     const controller = new AbortController();
-    try { const saved = parseStoredEngineSettings(window.localStorage.getItem(ENGINE_SETTINGS_KEY)); queueMicrotask(() => { loaded.current = true; setStored(saved); }); }
-    catch { loaded.current = true; }
+    try { const saved = parseStoredEngineSettings(window.localStorage.getItem(ENGINE_SETTINGS_KEY)); queueMicrotask(() => { loaded.current = true; setStored(saved); setLoadedState(true); }); }
+    catch { loaded.current = true; queueMicrotask(() => setLoadedState(true)); }
     void probeDevEngine(fetch, controller.signal).then(result => { if (!controller.signal.aborted) setAvailability(result); });
     return () => controller.abort();
   }, []);
@@ -67,12 +88,23 @@ export function useEngineSettings() {
   function update(change: Partial<EngineSettings>, applyNow: boolean) {
     setStored(previous => {
       const next = { ...previous.next, ...change };
-      const value = { next, match: applyNow ? next : previous.match };
+      // Changing the current game's settings always cancels its rating.
+      const value: StoredEngineSettings = applyNow ? { next, match: next } : { ...previous, next };
       save(value); return value;
     });
   }
-  function startMatch() { setStored(previous => { const value = { next: previous.next, match: previous.next }; save(value); return value; }); }
-  return { settings: stored.next, match: stored.match, update, startMatch, availability };
+  function startMatch(rated?: MatchToken) {
+    setStored(previous => { const value: StoredEngineSettings = { next: previous.next, match: previous.next, ...(rated ? { rated } : {}) }; save(value); return value; });
+  }
+  /** Attach (or with `undefined`, remove) the adaptive token of the current game. */
+  function bindRated(rated: MatchToken | undefined) {
+    setStored(previous => {
+      if (JSON.stringify(previous.rated) === JSON.stringify(rated)) return previous;
+      const value: StoredEngineSettings = { next: previous.next, match: previous.match, ...(rated ? { rated } : {}) };
+      save(value); return value;
+    });
+  }
+  return { settings: stored.next, match: stored.match, rated: stored.rated, loaded: loadedState, update, startMatch, bindRated, availability };
 }
 
 export type EngineTurnState =

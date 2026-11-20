@@ -872,5 +872,143 @@
       "solidVsNatural": 4,
       "activeVsSolid": 6
     }
+  },
+  "adaptiveLadder": {
+    "measuredOn": "2026-11-20",
+    "note": "adaptive:<level> = 互角を目指す fixed at that level (nodes = 4000*75^(level/15), rounded to 100), purpose win, style balanced",
+    "runs": {
+      "adaptive-3-vs-2": {
+        "pair": [
+          "adaptive:3",
+          "adaptive:2"
+        ],
+        "nodes": [
+          9500,
+          7100
+        ],
+        "games": 32,
+        "score": {
+          "adaptive:3": 19,
+          "adaptive:2": 12,
+          "draw": 0,
+          "cap": 1,
+          "failure": 0
+        },
+        "scoreA": 0.609,
+        "ci95": [
+          0.437,
+          0.758
+        ],
+        "eloA": 77,
+        "eloCi95": [
+          -44,
+          198
+        ],
+        "capHits": [
+          0,
+          0
+        ],
+        "medianPlies": 135
+      },
+      "adaptive-8-vs-7": {
+        "pair": [
+          "adaptive:8",
+          "adaptive:7"
+        ],
+        "nodes": [
+          40000,
+          30000
+        ],
+        "games": 32,
+        "score": {
+          "adaptive:8": 24,
+          "adaptive:7": 8,
+          "draw": 0,
+          "cap": 0,
+          "failure": 0
+        },
+        "scoreA": 0.75,
+        "ci95": [
+          0.579,
+          0.867
+        ],
+        "eloA": 191,
+        "eloCi95": [
+          55,
+          326
+        ],
+        "capHits": [
+          0,
+          0
+        ],
+        "medianPlies": 101
+      },
+      "adaptive-13-vs-12": {
+        "pair": [
+          "adaptive:13",
+          "adaptive:12"
+        ],
+        "nodes": [
+          168700,
+          126500
+        ],
+        "games": 32,
+        "score": {
+          "adaptive:13": 20,
+          "adaptive:12": 12,
+          "draw": 0,
+          "cap": 0,
+          "failure": 0
+        },
+        "scoreA": 0.625,
+        "ci95": [
+          0.453,
+          0.771
+        ],
+        "eloA": 89,
+        "eloCi95": [
+          -33,
+          211
+        ],
+        "capHits": [
+          0,
+          0
+        ],
+        "medianPlies": 128
+      },
+      "adaptive-10-vs-6": {
+        "pair": [
+          "adaptive:10",
+          "adaptive:6"
+        ],
+        "nodes": [
+          71100,
+          22500
+        ],
+        "games": 32,
+        "score": {
+          "adaptive:10": 29,
+          "adaptive:6": 3,
+          "draw": 0,
+          "cap": 0,
+          "failure": 0
+        },
+        "scoreA": 0.906,
+        "ci95": [
+          0.758,
+          0.968
+        ],
+        "eloA": 394,
+        "eloCi95": [
+          198,
+          590
+        ],
+        "capHits": [
+          0,
+          0
+        ],
+        "medianPlies": 107
+      }
+    }
   }
 }

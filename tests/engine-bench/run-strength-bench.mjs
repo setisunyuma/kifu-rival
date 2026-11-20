@@ -11,6 +11,7 @@
 //   tier:<strength>[/<style>[/<purpose>]]  the app's rival settings (style/purpose default to the flags)
 //   nodes:<N>                              the engine's best move after N nodes (an anchor, no policy)
 //   builtin:<level>                        the built-in heuristic AI (Lv.1-4), seeded per move
+//   adaptive:<0-15>                        "互角を目指す" fixed at one adaptive level (its node budget)
 //
 // Searches limited by nodes are single-threaded and start from a cleared hash, so a run repeats
 // move for move on any machine as long as no search hits its time cap (reported as capHits).
@@ -38,6 +39,7 @@ const bundle = async (dir, name, contents) => {
   return import(file);
 };
 const players = await bundle(source, "players", 'export * from "./lib/shogi"; export * from "./lib/engine/engine-rival"; export * from "./lib/engine/browser-engine"; export * from "./lib/engine/rival-policy";');
+const adaptiveModule = source === root ? await bundle(root, "adaptive", 'export * from "./lib/engine/adaptive-strength";') : undefined;
 const reference = await bundle(root, "reference", 'export * from "./lib/engine/usi-adapter"; export { DEV_ENGINE_OPTIONS } from "./lib/engine/browser-engine";');
 const { EngineRival, DEV_ENGINE_OPTIONS, initialGame, legalMoves, playMove, usi, declareEntering, chooseRivalMove, isInCheck, STRENGTH_PROFILES } = players;
 const { UsiAdapter } = reference;
@@ -79,10 +81,13 @@ function parsePlayer(spec) {
   }
   if (kind === "nodes" && /^\d+$/.test(value)) return { spec, kind, nodes: Number(value) };
   if (kind === "builtin" && /^[1-4]$/.test(value)) return { spec, kind, level: Number(value) };
+  if (kind === "adaptive" && /^(\d|1[0-5])$/.test(value) && adaptiveModule) {
+    return { spec, kind: "tier", policy: { strength: "balanced", style: defaults.style, purpose: defaults.purpose, nodes: adaptiveModule.levelNodes(Number(value)) } };
+  }
   throw new Error(`Unknown player: ${spec}`);
 }
 const pairArg = arg("--pair", "tier:balanced:tier:practice");
-const split = pairArg.match(/^((?:tier|nodes|builtin):[^:]+):((?:tier|nodes|builtin):[^:]+)$/);
+const split = pairArg.match(/^((?:tier|nodes|builtin|adaptive):[^:]+):((?:tier|nodes|builtin|adaptive):[^:]+)$/);
 if (!split) throw new Error("--pair must look like tier:balanced:tier:practice or nodes:4000:builtin:4");
 const [A, B] = [parsePlayer(split[1]), parsePlayer(split[2])];
 const openingCount = Math.min(Number(arg("--openings", OPENINGS.length)), OPENINGS.length);

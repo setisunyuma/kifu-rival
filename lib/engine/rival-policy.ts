@@ -21,7 +21,11 @@ import type { EngineAnalysis, EngineCandidate } from "./usi-adapter";
 export type RivalStrength = "strong" | "balanced" | "practice";
 export type RivalStyle = "balanced" | "active" | "solid";
 export type RivalPurpose = "win" | "close-game" | "finish-practice";
-export type RivalPolicy = { strength: RivalStrength; style: RivalStyle; purpose?: RivalPurpose };
+export type RivalPolicy = {
+  strength: RivalStrength; style: RivalStyle; purpose?: RivalPurpose;
+  /** Node budget fixed for this game by the adaptive strength (KIF-022 stage 2). Clamped to the ladder. */
+  nodes?: number;
+};
 
 export type StrengthProfile = {
   label: string; summary: string;

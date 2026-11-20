@@ -11,7 +11,7 @@ if (!existsSync(esbuild)) {
 
 const output = resolve(root, ".sites-runtime", "unit-tests");
 mkdirSync(output, { recursive: true });
-const sources = ["tests/shogi.spec.ts", "tests/rival-chat.spec.ts", "tests/guarded-auto-merge.spec.ts", "tests/backup.spec.ts", "tests/learning.spec.ts", "tests/persistence.spec.ts", "tests/engine-prototype.spec.ts", "tests/study-path.spec.ts", "tests/engine-play.spec.ts"];
+const sources = ["tests/shogi.spec.ts", "tests/rival-chat.spec.ts", "tests/guarded-auto-merge.spec.ts", "tests/backup.spec.ts", "tests/learning.spec.ts", "tests/persistence.spec.ts", "tests/engine-prototype.spec.ts", "tests/study-path.spec.ts", "tests/engine-play.spec.ts", "tests/adaptive-strength.spec.ts"];
 const bundlerArguments = [
   ...sources.map(file => resolve(root, file)),
   "--bundle", "--platform=node", "--format=esm", `--outdir=${output}`,
